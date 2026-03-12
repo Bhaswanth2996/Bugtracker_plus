@@ -1,4 +1,4 @@
-from app.routes import audit, auth, comments, dashboard, health, issues, projects, users
+from app.routes import audit, auth, comments, dashboard, health, issues, notifications, projects, sprints, users
 
 __all__ = [
     "audit",
@@ -7,6 +7,8 @@ __all__ = [
     "dashboard",
     "health",
     "issues",
+    "notifications",
     "projects",
+    "sprints",
     "users",
 ]

@@ -1,133 +1,182 @@
-# Bug Tracker+
+# BugTracker+ (Jira-like Issue Tracking System)
 
-Bug Tracker+ is a full-stack, cloud-ready issue management platform built for Agile and DevOps workflows.
+BugTracker+ is a Jira-inspired cloud-native issue management platform built with FastAPI, React, MongoDB (CosmosDB compatible), Docker, GitHub Actions, and Azure-ready deployment workflows.
 
-## Tech Stack
+## Implemented Stack
 
-- **Frontend**: Next.js (React + TypeScript + Tailwind CSS)
-- **Backend**: FastAPI (Python)
-- **Database**: MongoDB (with in-memory fallback for local dev/testing)
-- **Auth**: JWT-based authentication with role-based access control (RBAC)
-- **DevOps**: Docker Compose + GitHub Actions CI
+- **Backend**: Python FastAPI + REST + JWT + RBAC
+- **Frontend**: React.js + React Router + Axios + Tailwind CSS (Vite)
+- **Database**: MongoDB / Azure Cosmos DB (Mongo API)
+- **Testing**: PyTest + Selenium + Allure reports
+- **DevOps**: Docker, docker-compose, GitHub Actions CI/CD, Azure deployment integration
 
-## Features Implemented
+## Jira-like Features Included
 
-- User registration/login and JWT auth
-- Bootstrap admin creation (first registered account becomes admin)
-- Role-aware access: `admin`, `manager`, `developer`, `tester`
-- Project management (create/list/update)
-- Issue management:
-  - create/list/filter/get/update
-  - status transitions (`open`, `in_progress`, `resolved`, `closed`)
-  - priorities (`low`, `medium`, `high`, `critical`)
-  - assignment and tags
-  - change history tracking
-- Commenting on issues
-- Audit logging for key actions
-- Dashboard stats for issue metrics
-- Cloud-ready and local Docker setup
+- Authentication: register/login/JWT
+- Role permissions: `admin`, `project_manager`, `developer`, `tester`
+- User profiles and role updates
+- Projects and team membership management
+- Issues with:
+  - title, description, issue type (`bug`, `task`, `story`, `epic`)
+  - status (`todo`, `in_progress`, `done`)
+  - priority (`low`, `medium`, `high`, `critical`)
+  - reporter, assignee, labels
+  - attachments
+  - timestamps and history tracking
+- Kanban board with drag/drop status updates
+- Sprint management (create/start/close)
+- Backlog prioritization and reorder
+- Threaded comments with edit/delete
+- Audit log activity timeline
+- Search and filters (status/priority/project/assignee/text)
+- Notifications for assignment/comments/status changes
+- Dashboard statistics and recent activity
 
-## Repository Layout
+## Repository Structure
 
 ```text
-.
-├── app/                      # Next.js frontend
+bugtracker-plus/
 ├── backend/
 │   ├── app/
-│   │   ├── core/             # config, auth, dependencies
-│   │   ├── db/               # Mongo/in-memory store implementations
-│   │   ├── models/           # Pydantic schemas
-│   │   ├── routes/           # API routers
-│   │   └── services/         # supporting services (audit)
-│   ├── tests/                # backend pytest suite
+│   │   ├── main.py
+│   │   ├── routes/
+│   │   ├── models/
+│   │   ├── services/
+│   │   ├── auth/
+│   │   ├── core/
+│   │   ├── db/
+│   │   └── database.py
+│   ├── tests/
 │   ├── requirements.txt
+│   ├── pytest.ini
+│   ├── .env.example
 │   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   ├── context/
+│   │   └── App.jsx
+│   ├── package.json
+│   └── .env.example
+├── docker/
+│   ├── Dockerfile.backend
+│   └── Dockerfile.frontend
 ├── docker-compose.yml
-├── Dockerfile.frontend
-└── .github/workflows/ci.yml
+├── .github/workflows/ci.yml
+└── README.md
 ```
 
-## Local Development
+## Run Locally
 
-### 1) Frontend setup
-
-```bash
-npm ci
-cp .env.example .env.local
-npm run dev:frontend
-```
-
-Frontend runs on `http://localhost:3000`.
-
-### 2) Backend setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-cp backend/.env.example backend/.env
-npm run dev:backend
-```
-
-Backend runs on `http://localhost:8000`.
-
-### 3) Docker full-stack setup
+### Option A: Docker Compose (recommended)
 
 ```bash
 docker compose up --build
 ```
 
 Services:
-- Frontend: `http://localhost:3000`
+- Frontend: `http://localhost:5173`
 - Backend: `http://localhost:8000`
 - MongoDB: `mongodb://localhost:27017`
 
-## API Overview
+### Option B: Run services separately
 
-- `GET /health`
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `GET /api/users`
-- `PATCH /api/users/{user_id}/role`
-- `POST /api/projects`
-- `GET /api/projects`
-- `PATCH /api/projects/{project_id}`
-- `POST /api/issues`
-- `GET /api/issues`
-- `GET /api/issues/{issue_id}`
-- `PATCH /api/issues/{issue_id}`
-- `POST /api/comments`
-- `GET /api/comments/issue/{issue_id}`
-- `GET /api/audit`
-- `GET /api/dashboard/stats`
-
-## Testing and Validation
-
-### Backend tests
-
+Backend:
 ```bash
-npm run test:backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+cp backend/.env.example backend/.env
+python3 -m uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000
 ```
 
-### Frontend lint/build
-
+Frontend:
 ```bash
-npm run lint
-npm run build
+npm --prefix frontend install
+cp frontend/.env.example frontend/.env
+npm --prefix frontend run dev
 ```
 
-## CI
+## API Summary
 
-GitHub Actions pipeline (`.github/workflows/ci.yml`) runs:
-- frontend lint + build
-- backend pytest tests
+- **Auth**
+  - `POST /auth/register`
+  - `POST /auth/login`
+  - `GET /auth/me`
+- **Users**
+  - `GET /users`
+  - `GET /users/{id}`
+  - `PUT /users/me/profile`
+  - `PUT /users/{id}/role`
+- **Projects**
+  - `POST /projects`
+  - `GET /projects`
+  - `GET /projects/{id}`
+  - `PUT /projects/{id}`
+  - `POST /projects/{id}/members`
+  - `GET /projects/{id}/dashboard`
+  - `GET /projects/{id}/backlog`
+  - `PUT /projects/{id}/backlog/reorder`
+  - `GET /projects/{id}/board`
+- **Issues**
+  - `POST /issues`
+  - `GET /issues`
+  - `GET /issues/{id}`
+  - `PUT /issues/{id}`
+  - `DELETE /issues/{id}`
+  - `PUT /issues/{id}/sprint`
+  - `POST /issues/{id}/attachments`
+- **Comments**
+  - `POST /comments`
+  - `GET /comments/{issueId}`
+  - `PUT /comments/{commentId}`
+  - `DELETE /comments/{commentId}`
+- **Sprints**
+  - `POST /sprints`
+  - `GET /sprints`
+  - `PUT /sprints/{id}`
+  - `POST /sprints/{id}/start`
+  - `POST /sprints/{id}/close`
+- **System**
+  - `GET /dashboard`
+  - `GET /audit`
+  - `GET /notifications`
+  - `PUT /notifications/{id}/read`
+  - `GET /health`
 
-## Azure Deployment Notes
+## Testing
 
-For your final project target:
-- Deploy backend container to Azure App Service
-- Use Azure Cosmos DB for MongoDB API
-- Deploy frontend (Next.js) to Azure Static Web Apps or App Service
-- Store secrets in Azure Key Vault/App Service settings
-- Keep CI/CD in GitHub Actions or Azure DevOps pipelines
+Backend:
+```bash
+PYTHONPATH=backend python3 -m pytest backend/tests -q
+```
+
+Allure report artifacts:
+```bash
+PYTHONPATH=backend python3 -m pytest backend/tests --alluredir=backend/allure-results
+```
+
+Selenium E2E:
+```bash
+E2E_FRONTEND_URL=http://localhost:5173 PYTHONPATH=backend python3 -m pytest backend/tests -m e2e -q
+```
+
+## CI/CD and Azure
+
+GitHub Actions (`.github/workflows/ci.yml`) performs:
+- frontend install/lint/build
+- backend test execution
+- Allure artifacts upload
+- docker image build validation
+- optional Azure deployment on `main` using:
+  - `AZURE_CREDENTIALS`
+  - `AZURE_WEBAPP_NAME`
+  - `AZURE_WEBAPP_IMAGE`
+
+### Azure service mapping
+- **Azure App Service**: host backend container
+- **Azure Cosmos DB (Mongo API)**: primary database
+- **Azure Blob Storage**: issue attachment storage (optional env-enabled)
+- **Azure Monitor**: application and platform monitoring

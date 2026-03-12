@@ -12,7 +12,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: docker/Dockerfile.backend
     container_name: bugtracker-backend
     restart: unless-stopped
     environment:
@@ -20,24 +21,35 @@ services:
       BUGTRACKER_JWT_SECRET_KEY: this-should-be-replaced-in-prod
       BUGTRACKER_MONGODB_URI: mongodb://mongodb:27017
       BUGTRACKER_MONGODB_DB_NAME: bugtrackerplus
-      BUGTRACKER_CORS_ORIGINS: '["http://localhost:3000"]'
+      BUGTRACKER_CORS_ORIGINS: '["http://localhost:5173"]'
+      BUGTRACKER_LOCAL_UPLOAD_DIR: uploads
     depends_on:
       - mongodb
     ports:
       - "8000:8000"
+    volumes:
+      - backend_uploads:/app/uploads
 
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      dockerfile: docker/Dockerfile.frontend
     container_name: bugtracker-frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: http://localhost:8000
     depends_on:
       - backend
     ports:
-      - "3000:3000"
+      - "5173:5173"
+
+  selenium:
+    image: selenium/standalone-chrome:134.0
+    container_name: bugtracker-selenium
+    shm_size: 2gb
+    ports:
+      - "4444:4444"
 
 volumes:
   mongo_data:
+  backend_uploads:

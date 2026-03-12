@@ -7,7 +7,7 @@ from app.core.security import decode_access_token
 from app.db.store import BaseStore
 from app.models.schemas import UserInDB, UserRole
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 def get_store(request: Request) -> BaseStore:

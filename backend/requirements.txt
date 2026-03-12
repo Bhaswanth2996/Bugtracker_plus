@@ -6,3 +6,7 @@ pymongo
 email-validator
 pytest
 httpx
+python-multipart
+selenium
+allure-pytest
+azure-storage-blob
