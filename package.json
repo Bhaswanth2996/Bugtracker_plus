@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:frontend": "next dev",
+    "dev:backend": "python3 -m uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:backend": "PYTHONPATH=backend python3 -m pytest backend/tests -q"
   },
   "dependencies": {
     "framer-motion": "^12.29.0",

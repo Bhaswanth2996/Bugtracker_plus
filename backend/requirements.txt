@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-jose[cryptography]
+pydantic-settings
+pymongo
+email-validator
+pytest
+httpx
