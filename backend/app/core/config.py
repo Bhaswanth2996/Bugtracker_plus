@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     enable_demo_seed: bool = False
     azure_blob_connection_string: str | None = None
     azure_blob_container_name: str = "issue-attachments"
+    ci_ingest_token: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

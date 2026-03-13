@@ -179,6 +179,8 @@ class IssueCreate(BaseModel):
     issue_type: IssueType = IssueType.task
     priority: IssuePriority = IssuePriority.medium
     assignee_id: str | None = None
+    source: str | None = None
+    module: str | None = None
     labels: list[str] = Field(default_factory=list, max_length=30)
 
 
@@ -189,6 +191,8 @@ class IssueUpdate(BaseModel):
     priority: IssuePriority | None = None
     status: IssueStatus | None = None
     assignee_id: str | None = None
+    source: str | None = None
+    module: str | None = None
     labels: list[str] | None = Field(default=None, max_length=30)
     sprint_id: str | None = None
     backlog_order: float | None = None
@@ -207,6 +211,9 @@ class Issue(BaseModel):
     assignee_id: str | None = None
     sprint_id: str | None = None
     backlog_order: float = 0
+    source: str | None = None
+    module: str | None = None
+    test_failure_data: dict[str, Any] | None = None
     labels: list[str] = Field(default_factory=list)
     attachments: list[Attachment] = Field(default_factory=list)
     history: list[IssueHistoryItem] = Field(default_factory=list)
@@ -256,6 +263,76 @@ class IssueActivity(BaseModel):
     action: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=now_utc)
+
+
+class TestFailureReport(BaseModel):
+    projectKey: str
+    testName: str = Field(min_length=2, max_length=200)
+    errorMessage: str = Field(min_length=2, max_length=2000)
+    stackTrace: str = Field(default="", max_length=20000)
+    logs: str = Field(default="", max_length=20000)
+    screenshotUrl: str | None = None
+    timestamp: datetime = Field(default_factory=now_utc)
+
+
+class DuplicateMatch(BaseModel):
+    issueKey: str
+    similarity: float
+
+
+class DuplicateBugRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=160)
+    description: str = Field(min_length=5, max_length=6000)
+
+
+class DuplicateBugResponse(BaseModel):
+    duplicates: list[DuplicateMatch] = Field(default_factory=list)
+
+
+class AIBugAnalyzeRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=160)
+    description: str = Field(min_length=5, max_length=6000)
+
+
+class AIBugAnalyzeResponse(BaseModel):
+    possibleDuplicates: list[str] = Field(default_factory=list)
+    suggestedPriority: IssuePriority = IssuePriority.medium
+    suggestedLabels: list[str] = Field(default_factory=list)
+    suggestedAssignee: str | None = None
+
+
+class RecommendAssigneeRequest(BaseModel):
+    module: str | None = None
+    description: str = Field(min_length=5, max_length=6000)
+
+
+class RecommendAssigneeResponse(BaseModel):
+    recommendedDeveloper: str | None = None
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class ModuleRiskScore(BaseModel):
+    module: str
+    risk: float
+
+
+class RootCauseAnalysis(BaseModel):
+    id: str = Field(default_factory=new_id)
+    issue_id: str
+    suspected_commit: str
+    author: str
+    files_modified: list[str] = Field(default_factory=list)
+    confidence: float
+    analyzed_at: datetime = Field(default_factory=now_utc)
+
+
+class AIAnalysisLog(BaseModel):
+    id: str = Field(default_factory=new_id)
+    analysis_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 class SprintCreate(BaseModel):

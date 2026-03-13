@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.db.store import InMemoryStore, MongoStore
-from app.routes import audit, auth, comments, dashboard, health, issues, notifications, projects, sprints, users
+from app.routes import ai_platform, audit, auth, comments, dashboard, health, issues, notifications, projects, sprints, users
 from app.services.seeder import seed_demo_data
 
 settings = get_settings()
@@ -58,3 +58,4 @@ app.include_router(dashboard.project_router)
 app.include_router(sprints.router)
 app.include_router(sprints.project_router)
 app.include_router(notifications.router)
+app.include_router(ai_platform.router)

@@ -11,6 +11,7 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 
 from app.models.schemas import (
+    AIAnalysisLog,
     AuditLog,
     Comment,
     DashboardStats,
@@ -23,6 +24,7 @@ from app.models.schemas import (
     Notification,
     Project,
     ProjectMember,
+    RootCauseAnalysis,
     Sprint,
     UserInDB,
     UserProfile,
@@ -124,6 +126,21 @@ class BaseStore(ABC):
     def list_issue_activity(self, issue_id: str) -> list[IssueActivity]: ...
 
     @abstractmethod
+    def create_ai_analysis_log(self, log: AIAnalysisLog) -> AIAnalysisLog: ...
+
+    @abstractmethod
+    def list_ai_analysis_logs(self, analysis_type: str | None = None, limit: int = 50) -> list[AIAnalysisLog]: ...
+
+    @abstractmethod
+    def upsert_root_cause_analysis(self, analysis: RootCauseAnalysis) -> RootCauseAnalysis: ...
+
+    @abstractmethod
+    def get_root_cause_analysis(self, issue_id: str) -> RootCauseAnalysis | None: ...
+
+    @abstractmethod
+    def list_root_cause_analysis(self, limit: int = 20) -> list[RootCauseAnalysis]: ...
+
+    @abstractmethod
     def create_sprint(self, sprint: Sprint) -> Sprint: ...
 
     @abstractmethod
@@ -174,6 +191,8 @@ class InMemoryStore(BaseStore):
         self.issues: dict[str, Issue] = {}
         self.comments: dict[str, Comment] = {}
         self.issue_activities: dict[str, IssueActivity] = {}
+        self.ai_analysis_logs: dict[str, AIAnalysisLog] = {}
+        self.root_cause_analyses: dict[str, RootCauseAnalysis] = {}
         self.issue_links: dict[str, IssueLink] = {}
         self.sprints: dict[str, Sprint] = {}
         self.notifications: dict[str, Notification] = {}
@@ -358,6 +377,32 @@ class InMemoryStore(BaseStore):
         values = [deepcopy(item) for item in self.issue_activities.values() if item.issue_id == issue_id]
         return sorted(values, key=lambda item: item.timestamp, reverse=True)
 
+    def create_ai_analysis_log(self, log: AIAnalysisLog) -> AIAnalysisLog:
+        self.ai_analysis_logs[log.id] = deepcopy(log)
+        return deepcopy(log)
+
+    def list_ai_analysis_logs(self, analysis_type: str | None = None, limit: int = 50) -> list[AIAnalysisLog]:
+        values = list(self.ai_analysis_logs.values())
+        if analysis_type:
+            values = [item for item in values if item.analysis_type == analysis_type]
+        return sorted([deepcopy(item) for item in values], key=lambda item: item.created_at, reverse=True)[:limit]
+
+    def upsert_root_cause_analysis(self, analysis: RootCauseAnalysis) -> RootCauseAnalysis:
+        self.root_cause_analyses[analysis.issue_id] = deepcopy(analysis)
+        return deepcopy(analysis)
+
+    def get_root_cause_analysis(self, issue_id: str) -> RootCauseAnalysis | None:
+        value = self.root_cause_analyses.get(issue_id)
+        return deepcopy(value) if value else None
+
+    def list_root_cause_analysis(self, limit: int = 20) -> list[RootCauseAnalysis]:
+        values = sorted(
+            [deepcopy(item) for item in self.root_cause_analyses.values()],
+            key=lambda item: item.analyzed_at,
+            reverse=True,
+        )
+        return values[:limit]
+
     def create_sprint(self, sprint: Sprint) -> Sprint:
         self.sprints[sprint.id] = deepcopy(sprint)
         return deepcopy(sprint)
@@ -454,6 +499,8 @@ class MongoStore(BaseStore):
         self.issues_col: Collection = self.db["issues"]
         self.comments_col: Collection = self.db["comments"]
         self.issue_activity_col: Collection = self.db["issue_activity"]
+        self.ai_analysis_logs_col: Collection = self.db["ai_analysis_logs"]
+        self.root_cause_analysis_col: Collection = self.db["root_cause_analysis"]
         self.issue_links_col: Collection = self.db["issue_links"]
         self.sprints_col: Collection = self.db["sprints"]
         self.notifications_col: Collection = self.db["notifications"]
@@ -488,12 +535,18 @@ class MongoStore(BaseStore):
         self.issues_col.create_index("status")
         self.issues_col.create_index("priority")
         self.issues_col.create_index("assignee_id")
+        self.issues_col.create_index("source")
+        self.issues_col.create_index("module")
         self.issues_col.create_index("issue_key", unique=True, sparse=True)
         self.issues_col.create_index("labels")
         self.issues_col.create_index([("title", "text"), ("description", "text")])
         self.comments_col.create_index("issue_id")
         self.comments_col.create_index("parent_id")
         self.issue_activity_col.create_index("issue_id")
+        self.ai_analysis_logs_col.create_index("analysis_type")
+        self.ai_analysis_logs_col.create_index("created_at")
+        self.root_cause_analysis_col.create_index("issue_id", unique=True)
+        self.root_cause_analysis_col.create_index("analyzed_at")
         self.issue_links_col.create_index("source_issue_id")
         self.issue_links_col.create_index("target_issue_id")
         self.sprints_col.create_index("project_id")
@@ -654,6 +707,32 @@ class MongoStore(BaseStore):
     def list_issue_activity(self, issue_id: str) -> list[IssueActivity]:
         cursor = self.issue_activity_col.find({"issue_id": issue_id}).sort("timestamp", -1)
         return [self._load(IssueActivity, row) for row in cursor]
+
+    def create_ai_analysis_log(self, log: AIAnalysisLog) -> AIAnalysisLog:
+        self.ai_analysis_logs_col.insert_one(self._dump(log))
+        return log
+
+    def list_ai_analysis_logs(self, analysis_type: str | None = None, limit: int = 50) -> list[AIAnalysisLog]:
+        query: dict[str, Any] = {}
+        if analysis_type:
+            query["analysis_type"] = analysis_type
+        cursor = self.ai_analysis_logs_col.find(query).sort("created_at", -1).limit(limit)
+        return [self._load(AIAnalysisLog, row) for row in cursor]
+
+    def upsert_root_cause_analysis(self, analysis: RootCauseAnalysis) -> RootCauseAnalysis:
+        self.root_cause_analysis_col.update_one(
+            {"issue_id": analysis.issue_id},
+            {"$set": self._dump_for_update(analysis)},
+            upsert=True,
+        )
+        return analysis
+
+    def get_root_cause_analysis(self, issue_id: str) -> RootCauseAnalysis | None:
+        return self._load(RootCauseAnalysis, self.root_cause_analysis_col.find_one({"issue_id": issue_id}))
+
+    def list_root_cause_analysis(self, limit: int = 20) -> list[RootCauseAnalysis]:
+        cursor = self.root_cause_analysis_col.find({}).sort("analyzed_at", -1).limit(limit)
+        return [self._load(RootCauseAnalysis, row) for row in cursor]
 
     def create_sprint(self, sprint: Sprint) -> Sprint:
         self.sprints_col.insert_one(self._dump(sprint))

@@ -54,6 +54,8 @@ def create_issue(
         priority=payload.priority,
         assignee_id=payload.assignee_id,
         reporter_id=current_user.id,
+        source=payload.source,
+        module=payload.module,
         labels=payload.labels,
     )
     project = store.get_project(payload.project_id)

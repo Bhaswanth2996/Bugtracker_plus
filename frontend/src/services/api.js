@@ -80,6 +80,46 @@ export const api = {
   getProjectDashboard: (projectId) => client.get(`/projects/${projectId}/dashboard`),
   getProjectReports: (projectId) => client.get(`/projects/${projectId}/reports`),
   getGlobalDashboard: () => client.get("/dashboard"),
+  getAdvancedDashboard: (projectId) =>
+    client.get("/api/analytics/advanced-dashboard", {
+      params: projectId ? { project_id: projectId } : {},
+    }),
+  getBugRiskPrediction: (projectId) =>
+    client.get("/api/analytics/bug-risk", {
+      params: projectId ? { project_id: projectId } : {},
+    }),
+  getAutomatedTestFailures: (projectId, limit = 6) =>
+    client.get("/api/analytics/automated-test-failures", {
+      params: { ...(projectId ? { project_id: projectId } : {}), limit },
+    }),
+  getRootCauseInsights: (limit = 6) =>
+    client.get("/api/analytics/root-cause-insights", { params: { limit } }),
+  getDeveloperWorkloadInsights: (projectId) =>
+    client.get("/api/analytics/developer-workload", {
+      params: projectId ? { project_id: projectId } : {},
+    }),
+  getAiInsights: (limit = 30) => client.get("/api/analytics/ai-insights", { params: { limit } }),
+  analyzeBug: (payload, projectId, module) =>
+    client.post("/api/ai/analyze-bug", payload, {
+      params: {
+        ...(projectId ? { project_id: projectId } : {}),
+        ...(module ? { module } : {}),
+      },
+    }),
+  findDuplicates: (payload, projectId) =>
+    client.post("/api/ai/find-duplicates", payload, {
+      params: projectId ? { project_id: projectId } : {},
+    }),
+  recommendAssignee: (payload, projectId) =>
+    client.post("/api/ai/recommend-assignee", payload, {
+      params: projectId ? { project_id: projectId } : {},
+    }),
+  getIssueRootCause: (issueId, refresh = false) =>
+    client.get(`/api/issues/${issueId}/root-cause`, { params: { refresh } }),
+  reportTestFailure: (payload, ciToken) =>
+    client.post("/api/test-failure-report", payload, {
+      headers: ciToken ? { "X-CI-Token": ciToken } : {},
+    }),
   getAuditLogs: (params) => client.get("/audit", { params }),
 
   listNotifications: () => client.get("/notifications"),

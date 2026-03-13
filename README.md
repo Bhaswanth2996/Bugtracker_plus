@@ -38,6 +38,17 @@ BugTracker+ is a Jira-inspired cloud-native issue management platform built with
 - Dashboard statistics + recent activity + assigned-to-me
 - Optional demo seed script with 50 AUTH issues (including Epic/Story)
 
+## Advanced AI + DevOps Extensions
+
+BugTracker+ now includes optional modular enhancements:
+
+- Automated issue creation from CI/CD test failures (`POST /api/test-failure-report`)
+- AI bug analysis suggestions (priority, labels, assignee, duplicate hints)
+- Smart duplicate bug detection using text similarity
+- Bug risk prediction analytics by module
+- Root-cause analysis insights per issue (`GET /api/issues/{issueId}/root-cause`)
+- Intelligent assignee recommendation + developer workload insights
+
 ## Repository Structure
 
 ```text
@@ -173,6 +184,18 @@ Default seeded users:
   - `GET /notifications`
   - `PUT /notifications/{id}/read`
   - `GET /health`
+- **AI / DevOps Extensions (`/api`)**
+  - `POST /api/test-failure-report`
+  - `POST /api/ai/analyze-bug`
+  - `POST /api/ai/find-duplicates`
+  - `POST /api/ai/recommend-assignee`
+  - `GET /api/issues/{id}/root-cause`
+  - `GET /api/analytics/bug-risk`
+  - `GET /api/analytics/automated-test-failures`
+  - `GET /api/analytics/root-cause-insights`
+  - `GET /api/analytics/developer-workload`
+  - `GET /api/analytics/ai-insights`
+  - `GET /api/analytics/advanced-dashboard`
 
 ## Testing
 
@@ -202,6 +225,22 @@ GitHub Actions (`.github/workflows/ci.yml`) performs:
   - `AZURE_CREDENTIALS`
   - `AZURE_WEBAPP_NAME`
   - `AZURE_WEBAPP_IMAGE`
+
+### Example CI failure reporting step
+
+```bash
+curl -X POST "http://localhost:8000/api/test-failure-report" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectKey":"AUTH",
+    "testName":"LoginTest",
+    "errorMessage":"TokenExpiredError",
+    "stackTrace":"Traceback...",
+    "logs":"pytest failure log output",
+    "screenshotUrl":"https://example.com/failure.png",
+    "timestamp":"2026-03-12T10:00:00Z"
+  }'
+```
 
 ### Azure service mapping
 - **Azure App Service**: host backend container

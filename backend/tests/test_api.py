@@ -138,9 +138,80 @@ def test_jira_like_end_to_end_flow() -> None:
         assert stats.status_code == 200
         assert stats.json()["in_progress_issues"] == 1
 
+        ai_analysis = client.post(
+            "/api/ai/analyze-bug",
+            params={"project_id": project_id, "module": "authentication"},
+            json={
+                "title": "Login error with expired token",
+                "description": "Users are seeing a token expired error and cannot continue.",
+            },
+            headers=auth_headers(admin_token),
+        )
+        assert ai_analysis.status_code == 200
+        assert "suggestedPriority" in ai_analysis.json()
+
+        duplicate_scan = client.post(
+            "/api/ai/find-duplicates",
+            params={"project_id": project_id},
+            json={
+                "title": "Login refresh bug",
+                "description": "Session token does not refresh and users are logged out.",
+            },
+            headers=auth_headers(admin_token),
+        )
+        assert duplicate_scan.status_code == 200
+        assert "duplicates" in duplicate_scan.json()
+
+        assignee_reco = client.post(
+            "/api/ai/recommend-assignee",
+            params={"project_id": project_id},
+            json={"module": "authentication", "description": "Need fix for token refresh flow"},
+            headers=auth_headers(admin_token),
+        )
+        assert assignee_reco.status_code == 200
+        assert "recommendedDeveloper" in assignee_reco.json()
+
+        root_cause = client.get(
+            f"/api/issues/{issue_id}/root-cause",
+            headers=auth_headers(admin_token),
+        )
+        assert root_cause.status_code == 200
+        assert "suspectedCommit" in root_cause.json()
+
+        bug_risk = client.get(
+            "/api/analytics/bug-risk",
+            params={"project_id": project_id},
+            headers=auth_headers(admin_token),
+        )
+        assert bug_risk.status_code == 200
+        assert isinstance(bug_risk.json(), list)
+
+        ci_issue = client.post(
+            "/api/test-failure-report",
+            json={
+                "projectKey": "BUG",
+                "testName": "LoginTest",
+                "errorMessage": "TokenExpiredError",
+                "stackTrace": "Traceback...",
+                "logs": "pytest failure logs",
+                "screenshotUrl": "https://example.com/screenshot.png",
+                "timestamp": "2026-03-12T10:00:00Z",
+            },
+        )
+        assert ci_issue.status_code == 201
+        assert ci_issue.json()["source"] == "CI/CD Pipeline"
+
+        advanced_dashboard = client.get(
+            "/api/analytics/advanced-dashboard",
+            params={"project_id": project_id},
+            headers=auth_headers(admin_token),
+        )
+        assert advanced_dashboard.status_code == 200
+        assert "bugRiskPrediction" in advanced_dashboard.json()
+
         backlog = client.get(f"/projects/{project_id}/backlog", headers=auth_headers(admin_token))
         assert backlog.status_code == 200
-        assert len(backlog.json()) == 0
+        assert all(item["id"] != issue_id for item in backlog.json())
 
         audit = client.get("/audit", headers=auth_headers(admin_token))
         assert audit.status_code == 200

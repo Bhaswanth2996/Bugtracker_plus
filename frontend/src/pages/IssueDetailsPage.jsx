@@ -15,6 +15,7 @@ export default function IssueDetailsPage() {
   const [comments, setComments] = useState([]);
   const [activity, setActivity] = useState([]);
   const [links, setLinks] = useState([]);
+  const [rootCause, setRootCause] = useState(null);
   const [users, setUsers] = useState([]);
   const [commentBody, setCommentBody] = useState("");
   const [replyParentId, setReplyParentId] = useState(null);
@@ -39,10 +40,14 @@ export default function IssueDetailsPage() {
         api.listIssueActivity(currentIssue.id),
         api.listIssueLinks(currentIssue.id),
       ]);
+      const rootCauseResp = await api
+        .getIssueRootCause(currentIssue.id)
+        .catch(() => ({ data: null }));
       setComments(commentsResp.data);
       setUsers(usersResp.data);
       setActivity(activityResp.data);
       setLinks(linksResp.data);
+      setRootCause(rootCauseResp.data);
       setError("");
     } catch (err) {
       setError(parseApiError(err));
@@ -242,6 +247,71 @@ export default function IssueDetailsPage() {
             </a>
           ))}
         </div>
+      </section>
+
+      <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
+        <h3 className="font-semibold mb-2">Test Failure Information</h3>
+        {issue.test_failure_data ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              <span className="text-slate-400">Test:</span> {issue.test_failure_data.testName}
+            </p>
+            <p>
+              <span className="text-slate-400">Error:</span>{" "}
+              {issue.test_failure_data.errorMessage}
+            </p>
+            <p>
+              <span className="text-slate-400">Source:</span>{" "}
+              {issue.source || "CI/CD Pipeline"}
+            </p>
+            {issue.test_failure_data.screenshotUrl ? (
+              <a
+                href={issue.test_failure_data.screenshotUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-cyan-300 hover:underline"
+              >
+                Open failure screenshot
+              </a>
+            ) : null}
+            {issue.test_failure_data.logs ? (
+              <pre className="rounded-md border border-slate-800 bg-slate-950 p-2 text-xs overflow-x-auto">
+                {String(issue.test_failure_data.logs).slice(0, 2000)}
+              </pre>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">No automated test failure metadata.</p>
+        )}
+      </section>
+
+      <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
+        <h3 className="font-semibold mb-2">Root Cause Analysis</h3>
+        {rootCause ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              <span className="text-slate-400">Suspected commit:</span>{" "}
+              {rootCause.suspectedCommit}
+            </p>
+            <p>
+              <span className="text-slate-400">Developer:</span> {rootCause.author}
+            </p>
+            <p>
+              <span className="text-slate-400">Confidence:</span>{" "}
+              {(Number(rootCause.confidence || 0) * 100).toFixed(0)}%
+            </p>
+            <div>
+              <p className="text-slate-400">Modified files:</p>
+              <ul className="list-disc list-inside">
+                {(rootCause.filesModified || []).map((file) => (
+                  <li key={file}>{file}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">No root-cause insights available yet.</p>
+        )}
       </section>
 
       <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
