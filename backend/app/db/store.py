@@ -335,7 +335,7 @@ class InMemoryStore(BaseStore):
 
     def list_comments(self, issue_id: str) -> list[Comment]:
         values = [deepcopy(item) for item in self.comments.values() if item.issue_id == issue_id]
-        return sorted(values, key=lambda item: item.created_at)
+        return sorted(values, key=lambda item: item.created_at, reverse=True)
 
     def get_comment(self, comment_id: str) -> Comment | None:
         value = self.comments.get(comment_id)
@@ -629,7 +629,7 @@ class MongoStore(BaseStore):
         return comment
 
     def list_comments(self, issue_id: str) -> list[Comment]:
-        cursor = self.comments_col.find({"issue_id": issue_id}).sort("created_at", 1)
+        cursor = self.comments_col.find({"issue_id": issue_id}).sort("created_at", -1)
         return [self._load(Comment, row) for row in cursor]
 
     def get_comment(self, comment_id: str) -> Comment | None:
