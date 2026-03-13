@@ -61,6 +61,59 @@ AUTH_ISSUE_TITLES = [
     "Add suspicious login alerting",
 ]
 
+AUTH_EPIC_STORY_ISSUES: list[tuple[IssueType, str, str]] = [
+    (
+        IssueType.epic,
+        "Identity Modernization Program",
+        "Epic covering modernization of authentication architecture, security controls, and reliability.",
+    ),
+    (
+        IssueType.story,
+        "As a user, I can recover account with secure OTP",
+        "Implement OTP-based recovery path with anti-abuse limits and UX validation.",
+    ),
+    (
+        IssueType.epic,
+        "Enterprise SSO Expansion",
+        "Epic for onboarding enterprise identity providers (SAML/OIDC) with configuration governance.",
+    ),
+    (
+        IssueType.story,
+        "As an admin, I can enforce MFA for privileged accounts",
+        "Add policy engine to enforce MFA requirement on selected role groups.",
+    ),
+    (
+        IssueType.epic,
+        "Session Management Hardening",
+        "Epic focused on token revocation, idle timeout handling, and concurrent session controls.",
+    ),
+    (
+        IssueType.story,
+        "As a user, I can view active sessions and revoke them",
+        "Expose account-level session inventory with secure revoke action.",
+    ),
+    (
+        IssueType.epic,
+        "Auth Observability and Compliance",
+        "Epic for compliance-grade logs, alerting, and traceability across auth workflows.",
+    ),
+    (
+        IssueType.story,
+        "As an auditor, I can export auth event logs",
+        "Provide filtered export for login and token lifecycle events with PII-safe masking.",
+    ),
+    (
+        IssueType.epic,
+        "Zero-Trust Access Initiative",
+        "Epic introducing contextual access policies, anomaly checks, and risk-based auth flows.",
+    ),
+    (
+        IssueType.story,
+        "As a user, I receive risk alerts on suspicious login",
+        "Notify users in-app/email when suspicious login behavior is detected.",
+    ),
+]
+
 LABELS = [
     "auth",
     "api",
@@ -125,9 +178,11 @@ def seed_demo_data(store: BaseStore) -> None:
         )
         project = store.create_project(project)
 
+    target_issue_count = 50
     existing = store.list_issues(project_id=project.id)
-    if len(existing) >= 40:
+    if len(existing) >= target_issue_count:
         return
+    existing_keys = {issue.issue_key for issue in existing if issue.issue_key}
 
     rng = random.Random(42)
     statuses = [IssueStatus.todo, IssueStatus.in_progress, IssueStatus.done]
@@ -140,16 +195,19 @@ def seed_demo_data(store: BaseStore) -> None:
     assignees = [pm.id, dev.id, tester.id, None]
 
     for index, title in enumerate(AUTH_ISSUE_TITLES, start=1):
-        if len(store.list_issues(project_id=project.id)) >= 40:
+        if len(store.list_issues(project_id=project.id)) >= target_issue_count:
             break
+        issue_key = f"AUTH-{index}"
+        if issue_key in existing_keys:
+            continue
         priority = priorities[rng.randint(0, len(priorities) - 1)]
         status = statuses[rng.randint(0, len(statuses) - 1)]
         assignee = assignees[rng.randint(0, len(assignees) - 1)]
-        created_at = datetime.now(tz=timezone.utc) - timedelta(days=40 - index)
+        created_at = datetime.now(tz=timezone.utc) - timedelta(days=60 - index)
         labels = rng.sample(LABELS, k=rng.randint(1, 3))
         issue = Issue(
             project_id=project.id,
-            issue_key=f"AUTH-{index}",
+            issue_key=issue_key,
             title=title,
             description=f"Seeded issue {index}: {title}. Includes realistic data for Jira-like board workflows.",
             issue_type=IssueType.bug if index % 4 != 0 else IssueType.task,
@@ -163,6 +221,38 @@ def seed_demo_data(store: BaseStore) -> None:
             updated_at=created_at,
         )
         store.create_issue(issue)
+        existing_keys.add(issue_key)
+
+    epic_story_start = len(AUTH_ISSUE_TITLES) + 1
+    for offset, (issue_type, title, description) in enumerate(AUTH_EPIC_STORY_ISSUES):
+        if len(store.list_issues(project_id=project.id)) >= target_issue_count:
+            break
+        index = epic_story_start + offset
+        issue_key = f"AUTH-{index}"
+        if issue_key in existing_keys:
+            continue
+        priority = priorities[rng.randint(0, len(priorities) - 1)]
+        status = statuses[rng.randint(0, len(statuses) - 1)]
+        assignee = assignees[rng.randint(0, len(assignees) - 1)]
+        created_at = datetime.now(tz=timezone.utc) - timedelta(days=20 - offset)
+        labels = rng.sample(["auth", "epic", "story", "security", "platform"], k=2)
+        issue = Issue(
+            project_id=project.id,
+            issue_key=issue_key,
+            title=title,
+            description=description,
+            issue_type=issue_type,
+            priority=priority,
+            status=status,
+            reporter_id=pm.id,
+            assignee_id=assignee,
+            labels=labels,
+            backlog_order=float(index),
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        store.create_issue(issue)
+        existing_keys.add(issue_key)
 
     if not store.list_sprints(project.id):
         sprint = Sprint(
