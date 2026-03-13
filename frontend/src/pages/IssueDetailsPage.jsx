@@ -6,16 +6,19 @@ import { useAuth } from "../context/AuthContext";
 import PriorityBadge from "../components/PriorityBadge";
 import UserAvatar from "../components/UserAvatar";
 import { api, parseApiError } from "../services/api";
+import { issueWebSocketService } from "../services/websocketService";
 import { formatDate } from "../utils/date";
 
 export default function IssueDetailsPage() {
   const { issueId, issueKey } = useParams();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [issue, setIssue] = useState(null);
   const [comments, setComments] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [links, setLinks] = useState([]);
   const [rootCause, setRootCause] = useState(null);
+  const [liveUpdate, setLiveUpdate] = useState("");
   const [users, setUsers] = useState([]);
   const [commentBody, setCommentBody] = useState("");
   const [replyParentId, setReplyParentId] = useState(null);
@@ -34,10 +37,11 @@ export default function IssueDetailsPage() {
         : await api.getIssueByKey(issueKey);
       const currentIssue = issueResp.data;
       setIssue(currentIssue);
-      const [commentsResp, usersResp, activityResp, linksResp] = await Promise.all([
+      const [commentsResp, usersResp, activityResp, timelineResp, linksResp] = await Promise.all([
         api.listComments(currentIssue.id),
         api.listUsers().catch(() => ({ data: [] })),
         api.listIssueActivity(currentIssue.id),
+        api.getIssueTimeline(currentIssue.id),
         api.listIssueLinks(currentIssue.id),
       ]);
       const rootCauseResp = await api
@@ -46,6 +50,7 @@ export default function IssueDetailsPage() {
       setComments(commentsResp.data);
       setUsers(usersResp.data);
       setActivity(activityResp.data);
+      setTimeline(timelineResp.data || []);
       setLinks(linksResp.data);
       setRootCause(rootCauseResp.data);
       setError("");
@@ -57,6 +62,28 @@ export default function IssueDetailsPage() {
   useEffect(() => {
     loadIssue();
   }, [issueId, issueKey]);
+
+  useEffect(() => {
+    if (!issue?.id) {
+      return () => {};
+    }
+    return issueWebSocketService.subscribe(
+      (message) => {
+        if (!message?.event || message.event === "connected") {
+          return;
+        }
+        const sameIssue =
+          message.issueId === issue.id ||
+          (message.issueKey && issue.issue_key && message.issueKey === issue.issue_key);
+        if (!sameIssue) {
+          return;
+        }
+        setLiveUpdate(`${message.event.replaceAll("_", " ")} • ${formatDate(message.timestamp)}`);
+        loadIssue();
+      },
+      token
+    );
+  }, [issue?.id, issue?.issue_key, token]);
 
   async function updateField(field, value) {
     if (!issue) {
@@ -150,6 +177,7 @@ export default function IssueDetailsPage() {
       <h2 className="text-2xl font-semibold">Issue Details</h2>
       <p className="text-sm text-slate-400">{issue.issue_key || issue.id}</p>
       {error && <p className="text-sm text-rose-400">{error}</p>}
+      {liveUpdate && <p className="text-xs text-emerald-300">Live update: {liveUpdate}</p>}
 
       <section className="rounded-md border border-slate-800 bg-slate-900 p-4 space-y-3">
         <input
@@ -449,6 +477,33 @@ export default function IssueDetailsPage() {
               ) : null}
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
+        <h3 className="font-semibold mb-3">Timeline</h3>
+        <div className="space-y-4">
+          {(timeline || []).map((item) => (
+            <div key={item.id} className="relative pl-6">
+              <span className="absolute left-0 top-2 h-2 w-2 rounded-full bg-cyan-400" />
+              <span className="absolute left-[3px] top-4 h-full w-px bg-slate-700" />
+              <p className="text-sm text-slate-200">
+                <span className="font-medium">{item.action.replaceAll("_", " ")}</span>
+                {item.old_value || item.new_value ? (
+                  <span className="text-slate-400">
+                    {" "}
+                    ({item.old_value || "-"} → {item.new_value || "-"})
+                  </span>
+                ) : null}
+              </p>
+              <p className="text-xs text-slate-500">
+                {item.user_name || item.user_id} • {formatDate(item.timestamp)}
+              </p>
+            </div>
+          ))}
+          {(timeline || []).length === 0 && (
+            <p className="text-sm text-slate-400">No timeline events for this issue yet.</p>
+          )}
         </div>
       </section>
     </div>

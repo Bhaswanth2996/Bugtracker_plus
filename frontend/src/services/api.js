@@ -50,8 +50,11 @@ export const api = {
   getIssueByKey: (issueKey) => client.get(`/issues/key/${issueKey}`),
   updateIssue: (issueId, payload) => client.put(`/issues/${issueId}`, payload),
   deleteIssue: (issueId) => client.delete(`/issues/${issueId}`),
+  searchIssues: (params) => client.get("/api/issues/search", { params }),
   moveIssueToSprint: (issueId, payload) => client.put(`/issues/${issueId}/sprint`, payload),
   listIssueActivity: (issueId) => client.get(`/issues/${issueId}/activity`),
+  getIssueTimeline: (issueId, limit = 100) =>
+    client.get(`/api/issues/${issueId}/timeline`, { params: { limit } }),
   listIssueLinks: (issueId) => client.get(`/issues/${issueId}/links`),
   createIssueLink: (issueId, payload) => client.post(`/issues/${issueId}/links`, payload),
   deleteIssueLink: (issueId, linkId) => client.delete(`/issues/${issueId}/links/${linkId}`),
@@ -99,6 +102,10 @@ export const api = {
       params: projectId ? { project_id: projectId } : {},
     }),
   getAiInsights: (limit = 30) => client.get("/api/analytics/ai-insights", { params: { limit } }),
+  getRecentActivityTimeline: (projectId, limit = 15) =>
+    client.get("/api/analytics/recent-activity-timeline", {
+      params: { ...(projectId ? { project_id: projectId } : {}), limit },
+    }),
   analyzeBug: (payload, projectId, module) =>
     client.post("/api/ai/analyze-bug", payload, {
       params: {

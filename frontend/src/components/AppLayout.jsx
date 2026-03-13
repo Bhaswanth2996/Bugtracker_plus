@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LayoutDashboard, PlusCircle, Settings, Shield, UserCircle } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
+import { api } from "../services/api";
 import NotificationBell from "./NotificationBell";
 import UserAvatar from "./UserAvatar";
 
@@ -24,6 +26,43 @@ function getNavClassName({ isActive }) {
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef(null);
+
+  useEffect(() => {
+    function onClickOutside(event) {
+      if (!searchRef.current?.contains(event.target)) {
+        setSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setSearchResults([]);
+      return () => {};
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.searchIssues({ q: searchTerm.trim(), limit: 8 });
+        setSearchResults(response.data || []);
+        setSearchOpen(true);
+      } catch {
+        setSearchResults([]);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  function openSearchResult(item) {
+    navigate(item.issue_key ? `/issue/${item.issue_key}` : `/issues/${item.id}`);
+    setSearchOpen(false);
+    setSearchTerm("");
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 grid grid-cols-12">
@@ -49,6 +88,38 @@ export default function AppLayout() {
             <p className="text-xs text-slate-400">{user?.role}</p>
           </div>
           <div className="flex gap-2 items-center">
+            <div className="relative w-80 max-w-[45vw]" ref={searchRef}>
+              <input
+                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm"
+                placeholder="Search issues..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                onFocus={() => setSearchOpen(true)}
+              />
+              {searchOpen && searchTerm.trim() ? (
+                <div className="absolute right-0 mt-1 w-full rounded-md border border-slate-700 bg-slate-950 shadow-xl z-20 max-h-80 overflow-auto">
+                  {searchResults.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-slate-400">No matching issues.</p>
+                  ) : (
+                    searchResults.map((item) => (
+                      <button
+                        type="button"
+                        key={item.id}
+                        className="w-full text-left px-3 py-2 border-b border-slate-800 hover:bg-slate-800"
+                        onClick={() => openSearchResult(item)}
+                      >
+                        <p className="text-sm font-medium">
+                          {item.issue_key || item.id} — {item.title}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {item.status} • {item.priority}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
             <NotificationBell />
             <button
               type="button"

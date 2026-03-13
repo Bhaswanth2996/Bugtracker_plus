@@ -1,4 +1,4 @@
-from app.routes import ai_platform, audit, auth, comments, dashboard, health, issues, notifications, projects, sprints, users
+from app.routes import ai_platform, audit, auth, comments, dashboard, health, issues, notifications, projects, realtime, sprints, users
 
 __all__ = [
     "audit",
@@ -10,6 +10,7 @@ __all__ = [
     "issues",
     "notifications",
     "projects",
+    "realtime",
     "sprints",
     "users",
 ]

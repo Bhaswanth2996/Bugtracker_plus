@@ -209,6 +209,30 @@ def test_jira_like_end_to_end_flow() -> None:
         assert advanced_dashboard.status_code == 200
         assert "bugRiskPrediction" in advanced_dashboard.json()
 
+        timeline = client.get(
+            f"/api/issues/{issue_id}/timeline",
+            headers=auth_headers(admin_token),
+        )
+        assert timeline.status_code == 200
+        assert any(item["action"] == "status_changed" for item in timeline.json())
+        assert any(item["action"] == "comment_added" for item in timeline.json())
+
+        search_results = client.get(
+            "/api/issues/search",
+            params={"q": "login", "priority": "critical"},
+            headers=auth_headers(admin_token),
+        )
+        assert search_results.status_code == 200
+        assert any(item["id"] == issue_id for item in search_results.json())
+
+        recent_timeline = client.get(
+            "/api/analytics/recent-activity-timeline",
+            params={"project_id": project_id},
+            headers=auth_headers(admin_token),
+        )
+        assert recent_timeline.status_code == 200
+        assert isinstance(recent_timeline.json(), list)
+
         backlog = client.get(f"/projects/{project_id}/backlog", headers=auth_headers(admin_token))
         assert backlog.status_code == 200
         assert all(item["id"] != issue_id for item in backlog.json())

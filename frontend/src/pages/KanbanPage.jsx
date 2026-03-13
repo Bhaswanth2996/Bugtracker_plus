@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import KanbanColumn from "../components/KanbanColumn";
+import { useAuth } from "../context/AuthContext";
 import { api, parseApiError } from "../services/api";
+import { issueWebSocketService } from "../services/websocketService";
 import { useProjectResolver } from "../utils/useProjectResolver";
 
 export default function KanbanPage() {
   const { projectId, projectKey } = useParams();
+  const { token } = useAuth();
   const { project, projectError } = useProjectResolver(projectId, projectKey);
   const [issues, setIssues] = useState([]);
   const [error, setError] = useState("");
@@ -53,6 +56,26 @@ export default function KanbanPage() {
       setError(projectError);
     }
   }, [projectError]);
+
+  useEffect(() => {
+    if (!project?.id) {
+      return () => {};
+    }
+    return issueWebSocketService.subscribe(
+      (message) => {
+        if (!message?.event || message.event === "connected") {
+          return;
+        }
+        if (message.projectId && message.projectId !== project.id) {
+          return;
+        }
+        if (["issue_created", "issue_updated", "issue_status_changed", "comment_added"].includes(message.event)) {
+          loadBoard();
+        }
+      },
+      token
+    );
+  }, [project?.id, token, assigneeFilter, priorityFilter, labelFilter, search]);
 
   const userMap = useMemo(
     () => Object.fromEntries(users.map((user) => [user.id, user])),

@@ -48,6 +48,9 @@ BugTracker+ now includes optional modular enhancements:
 - Bug risk prediction analytics by module
 - Root-cause analysis insights per issue (`GET /api/issues/{issueId}/root-cause`)
 - Intelligent assignee recommendation + developer workload insights
+- Real-time issue updates over WebSocket (`/ws/issues`)
+- Professional issue timeline/history tracking (`issue_history`, `/api/issues/{issueId}/timeline`)
+- Global issue search across projects (`GET /api/issues/search`)
 
 ## Repository Structure
 
@@ -190,12 +193,17 @@ Default seeded users:
   - `POST /api/ai/find-duplicates`
   - `POST /api/ai/recommend-assignee`
   - `GET /api/issues/{id}/root-cause`
+  - `GET /api/issues/{id}/timeline`
+  - `GET /api/issues/search`
   - `GET /api/analytics/bug-risk`
   - `GET /api/analytics/automated-test-failures`
   - `GET /api/analytics/root-cause-insights`
   - `GET /api/analytics/developer-workload`
   - `GET /api/analytics/ai-insights`
   - `GET /api/analytics/advanced-dashboard`
+  - `GET /api/analytics/recent-activity-timeline`
+- **Realtime**
+  - `WS /ws/issues`
 
 ## Testing
 

@@ -265,6 +265,29 @@ class IssueActivity(BaseModel):
     timestamp: datetime = Field(default_factory=now_utc)
 
 
+class IssueTimelineEvent(BaseModel):
+    id: str = Field(default_factory=new_id)
+    issue_id: str
+    project_id: str | None = None
+    action: str
+    old_value: str | None = None
+    new_value: str | None = None
+    user_id: str
+    user_name: str | None = None
+    timestamp: datetime = Field(default_factory=now_utc)
+
+
+class IssueSearchResult(BaseModel):
+    id: str
+    issue_key: str | None = None
+    project_id: str
+    title: str
+    status: IssueStatus
+    priority: IssuePriority
+    assignee_id: str | None = None
+    updated_at: datetime
+
+
 class TestFailureReport(BaseModel):
     projectKey: str
     testName: str = Field(min_length=2, max_length=200)

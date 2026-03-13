@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -7,7 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.db.store import InMemoryStore, MongoStore
-from app.routes import ai_platform, audit, auth, comments, dashboard, health, issues, notifications, projects, sprints, users
+from app.routes import ai_platform, audit, auth, comments, dashboard, health, issues, notifications, projects, realtime, sprints, users
+from app.services.realtime import IssuesWebSocketHub
 from app.services.seeder import seed_demo_data
 
 settings = get_settings()
@@ -16,6 +18,8 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Path(settings.local_upload_dir).mkdir(parents=True, exist_ok=True)
+    app.state.issues_ws_hub = IssuesWebSocketHub()
+    app.state.main_event_loop = asyncio.get_running_loop()
     if settings.store_backend == "memory":
         app.state.store = InMemoryStore()
     elif settings.store_backend == "mongodb":
@@ -59,3 +63,4 @@ app.include_router(sprints.router)
 app.include_router(sprints.project_router)
 app.include_router(notifications.router)
 app.include_router(ai_platform.router)
+app.include_router(realtime.router)

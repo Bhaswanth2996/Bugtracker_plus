@@ -5,7 +5,7 @@ from collections import Counter
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
 from app.core.config import get_settings
-from app.core.deps import get_current_user, get_store
+from app.core.deps import get_current_user, get_realtime_publisher, get_store
 from app.db.store import BaseStore
 from app.models.schemas import (
     AIAnalysisLog,
@@ -20,6 +20,7 @@ from app.models.schemas import (
     IssuePriority,
     IssueStatus,
     IssueType,
+    IssueSearchResult,
     RecommendAssigneeRequest,
     RecommendAssigneeResponse,
     RootCauseAnalysis,
@@ -33,8 +34,11 @@ from app.services.developer_recommendation_engine import (
     recommend_assignee,
 )
 from app.services.duplicate_bug_detector import find_duplicate_issues
+from app.services.issue_search import global_issue_search
+from app.services.issue_timeline import record_issue_timeline
 from app.services.root_cause_analyzer import analyze_root_cause
 from app.services.permissions import ensure_project_access
+from app.services.realtime import RealtimePublisher
 
 router = APIRouter(prefix="/api", tags=["ai-platform"])
 
@@ -80,11 +84,24 @@ def _ensure_project_access_if_needed(
         ensure_project_access(store, current_user, project_id)
 
 
+def _visible_project_ids(store: BaseStore, current_user: UserInDB) -> set[str]:
+    projects = store.list_projects()
+    if current_user.role.value == "admin":
+        return {item.id for item in projects}
+    return {
+        item.id
+        for item in projects
+        if item.created_by == current_user.id
+        or any(member.user_id == current_user.id for member in item.members)
+    }
+
+
 @router.post("/test-failure-report", response_model=Issue, status_code=status.HTTP_201_CREATED)
 def ingest_test_failure_report(
     payload: TestFailureReport,
     store: BaseStore = Depends(get_store),
     x_ci_token: str | None = Header(default=None, alias="X-CI-Token"),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Issue:
     _validate_ci_token(x_ci_token)
 
@@ -152,6 +169,25 @@ def ingest_test_failure_report(
             action="automated_test_failure_ingested",
             metadata={"project_key": payload.projectKey, "test_name": payload.testName},
         )
+    )
+    record_issue_timeline(
+        store,
+        issue_id=created.id,
+        action="issue_created",
+        user_id=reporter_id,
+        user_name="CI/CD Pipeline",
+        new_value=created.title,
+        project_id=created.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_created",
+            "issueId": created.id,
+            "issueKey": created.issue_key,
+            "projectId": created.project_id,
+            "status": created.status.value,
+            "source": created.source,
+        }
     )
     return created
 
@@ -247,6 +283,44 @@ def get_root_cause_endpoint(
     }
 
 
+@router.get("/issues/{issue_id}/timeline")
+def issue_timeline_endpoint(
+    issue_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> list[dict]:
+    issue = store.get_issue(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    ensure_project_access(store, current_user, issue.project_id)
+    items = store.list_issue_timeline(issue_id, limit=limit)
+    return [item.model_dump(mode="json") for item in items]
+
+
+@router.get("/issues/search", response_model=list[IssueSearchResult])
+def global_issue_search_endpoint(
+    q: str | None = Query(default=None, min_length=1),
+    status: IssueStatus | None = Query(default=None),
+    priority: IssuePriority | None = Query(default=None),
+    assignee: str | None = Query(default=None),
+    project: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> list[IssueSearchResult]:
+    return global_issue_search(
+        store,
+        current_user=current_user,
+        q=q,
+        status=status,
+        priority=priority,
+        assignee_id=assignee,
+        project=project,
+        limit=limit,
+    )
+
+
 @router.get("/analytics/bug-risk")
 def bug_risk_analytics(
     project_id: str | None = Query(default=None),
@@ -279,6 +353,20 @@ def recent_root_cause_insights(
 ) -> list[RootCauseAnalysis]:
     _ = current_user
     return store.list_root_cause_analysis(limit=limit)
+
+
+@router.get("/analytics/recent-activity-timeline")
+def recent_activity_timeline(
+    project_id: str | None = Query(default=None),
+    limit: int = Query(default=15, ge=1, le=100),
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> list[dict]:
+    _ensure_project_access_if_needed(store, current_user, project_id)
+    visible_project_ids = _visible_project_ids(store, current_user)
+    items = store.list_recent_timeline(project_id=project_id, limit=max(limit * 3, limit))
+    visible = [item for item in items if (not item.project_id) or item.project_id in visible_project_ids]
+    return [item.model_dump(mode="json") for item in visible[:limit]]
 
 
 @router.get("/analytics/developer-workload")
@@ -329,6 +417,7 @@ def advanced_dashboard(
         "duplicateRequests": ai_counts.get("find_duplicates", 0),
         "analyzeBugRequests": ai_counts.get("analyze_bug", 0),
     }
+    recent_timeline = store.list_recent_timeline(project_id=project_id, limit=12)
     return {
         "automatedTestFailures": [item.model_dump(mode="json") for item in recent_failures[:6]],
         "aiBugInsights": dict(ai_counts),
@@ -336,4 +425,13 @@ def advanced_dashboard(
         "rootCauseInsights": [item.model_dump(mode="json") for item in store.list_root_cause_analysis(limit=6)],
         "duplicateBugDetectionStats": duplicate_detection_stats,
         "developerWorkloadInsights": developer_workload_insights(store, project_id=project_id),
+        "recentActivityTimeline": [item.model_dump(mode="json") for item in recent_timeline],
+        "liveIssueUpdates": {
+            "message": "Connected clients receive live updates on /ws/issues",
+            "websocket": "/ws/issues",
+        },
+        "searchQuickAccess": {
+            "endpoint": "/api/issues/search",
+            "placeholder": "Search issues...",
+        },
     }

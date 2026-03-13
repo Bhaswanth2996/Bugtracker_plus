@@ -15,27 +15,70 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 import { api, parseApiError } from "../services/api";
+import { issueWebSocketService } from "../services/websocketService";
 import { formatDate } from "../utils/date";
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [stats, setStats] = useState(null);
   const [advanced, setAdvanced] = useState(null);
+  const [timelineEvents, setTimelineEvents] = useState([]);
+  const [liveEvents, setLiveEvents] = useState([]);
+  const [quickSearchTerm, setQuickSearchTerm] = useState("");
+  const [quickSearchResults, setQuickSearchResults] = useState([]);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const response = await api.getGlobalDashboard();
-        const advancedResp = await api.getAdvancedDashboard();
-        setStats(response.data);
-        setAdvanced(advancedResp.data);
-      } catch (err) {
-        setError(parseApiError(err));
-      }
+  async function loadDashboardData() {
+    try {
+      const [response, advancedResp, timelineResp] = await Promise.all([
+        api.getGlobalDashboard(),
+        api.getAdvancedDashboard(),
+        api.getRecentActivityTimeline(undefined, 15),
+      ]);
+      setStats(response.data);
+      setAdvanced(advancedResp.data);
+      setTimelineEvents(timelineResp.data || []);
+      setError("");
+    } catch (err) {
+      setError(parseApiError(err));
     }
-    load();
+  }
+
+  useEffect(() => {
+    loadDashboardData();
   }, []);
+
+  useEffect(() => {
+    return issueWebSocketService.subscribe(
+      (message) => {
+        if (!message?.event || message.event === "connected") {
+          return;
+        }
+        if (!["issue_created", "issue_updated", "issue_status_changed", "comment_added", "issue_assigned"].includes(message.event)) {
+          return;
+        }
+        setLiveEvents((prev) => [message, ...prev].slice(0, 8));
+        loadDashboardData();
+      },
+      token
+    );
+  }, [token]);
+
+  useEffect(() => {
+    if (!quickSearchTerm.trim()) {
+      setQuickSearchResults([]);
+      return () => {};
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.searchIssues({ q: quickSearchTerm.trim(), limit: 6 });
+        setQuickSearchResults(response.data || []);
+      } catch {
+        setQuickSearchResults([]);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [quickSearchTerm]);
 
   return (
     <div className="space-y-4">
@@ -235,6 +278,76 @@ export default function DashboardPage() {
                   <p className="text-slate-400">No duplicate detection stats available yet.</p>
                 )}
               </div>
+            </div>
+          </section>
+
+          <section className="grid lg:grid-cols-2 gap-4">
+            <div className="rounded-md border border-slate-800 bg-slate-900 p-4">
+              <h3 className="font-semibold mb-2">Recent Activity Timeline</h3>
+              <div className="space-y-3">
+                {(timelineEvents || []).map((item) => (
+                  <div key={item.id} className="relative pl-6">
+                    <span className="absolute left-0 top-2 h-2 w-2 rounded-full bg-cyan-400" />
+                    <span className="absolute left-[3px] top-4 h-full w-px bg-slate-700" />
+                    <p className="text-sm text-slate-200">{item.action.replaceAll("_", " ")}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.user_name || item.user_id} • {formatDate(item.timestamp)}
+                    </p>
+                  </div>
+                ))}
+                {(timelineEvents || []).length === 0 && (
+                  <p className="text-sm text-slate-400">No timeline events yet.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-slate-800 bg-slate-900 p-4">
+              <h3 className="font-semibold mb-2">Live Issue Updates</h3>
+              <div className="space-y-2 text-sm">
+                {(liveEvents || []).map((item, idx) => (
+                  <div
+                    key={`${item.issueId || "no-issue"}-${idx}`}
+                    className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2"
+                  >
+                    <p className="font-medium">{item.event.replaceAll("_", " ")}</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {(item.issueKey || item.issueId || "n/a")} • {formatDate(item.timestamp)}
+                    </p>
+                  </div>
+                ))}
+                {(liveEvents || []).length === 0 && (
+                  <p className="text-slate-400">Waiting for live updates from /ws/issues ...</p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
+            <h3 className="font-semibold mb-2">Search Quick Access</h3>
+            <input
+              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+              placeholder="Search issues..."
+              value={quickSearchTerm}
+              onChange={(event) => setQuickSearchTerm(event.target.value)}
+            />
+            <div className="mt-3 space-y-2">
+              {(quickSearchResults || []).map((item) => (
+                <Link
+                  key={item.id}
+                  to={item.issue_key ? `/issue/${item.issue_key}` : `/issues/${item.id}`}
+                  className="block rounded-md border border-slate-800 bg-slate-950 px-3 py-2 hover:bg-slate-800"
+                >
+                  <p className="text-sm font-medium">
+                    {item.issue_key || item.id} — {item.title}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {item.status} • {item.priority}
+                  </p>
+                </Link>
+              ))}
+              {!quickSearchResults.length && quickSearchTerm.trim() && (
+                <p className="text-sm text-slate-400">No matching issues.</p>
+              )}
             </div>
           </section>
         </>

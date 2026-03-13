@@ -6,12 +6,19 @@ from fastapi.security import OAuth2PasswordBearer
 from app.core.security import decode_access_token
 from app.db.store import BaseStore
 from app.models.schemas import UserInDB, UserRole
+from app.services.realtime import RealtimePublisher
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 def get_store(request: Request) -> BaseStore:
     return request.app.state.store
+
+
+def get_realtime_publisher(request: Request) -> RealtimePublisher:
+    hub = getattr(request.app.state, "issues_ws_hub", None)
+    event_loop = getattr(request.app.state, "main_event_loop", None)
+    return RealtimePublisher(hub=hub, event_loop=event_loop)
 
 
 def get_current_user(

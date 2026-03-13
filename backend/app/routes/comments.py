@@ -2,13 +2,15 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.deps import get_current_user, get_store
+from app.core.deps import get_current_user, get_realtime_publisher, get_store
 from app.db.store import BaseStore
 from app.models.schemas import Comment, CommentCreate, CommentUpdate, NotificationType, UserInDB, UserRole
 from app.services.activity import log_issue_activity
 from app.services.audit import log_action
+from app.services.issue_timeline import record_issue_timeline
 from app.services.notifications import notify_user
 from app.services.permissions import ensure_project_access
+from app.services.realtime import RealtimePublisher
 
 router = APIRouter(prefix="/comments", tags=["comments"])
 
@@ -18,6 +20,7 @@ def create_comment(
     payload: CommentCreate,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Comment:
     issue = store.get_issue(payload.issue_id)
     if not issue:
@@ -62,6 +65,25 @@ def create_comment(
         action="comment_added",
         metadata={"comment_id": created.id, "parent_id": payload.parent_id},
     )
+    record_issue_timeline(
+        store,
+        issue_id=issue.id,
+        action="comment_added",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        new_value=payload.body[:180],
+        project_id=issue.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "comment_added",
+            "issueId": issue.id,
+            "issueKey": issue.issue_key,
+            "projectId": issue.project_id,
+            "commentId": created.id,
+            "status": issue.status.value,
+        }
+    )
     return created
 
 
@@ -84,6 +106,7 @@ def edit_comment(
     payload: CommentUpdate,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Comment:
     comment = store.get_comment(comment_id)
     if not comment:
@@ -112,6 +135,25 @@ def edit_comment(
         action="comment_updated",
         metadata={"comment_id": comment_id},
     )
+    record_issue_timeline(
+        store,
+        issue_id=issue.id,
+        action="comment_updated",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        new_value=payload.body[:180],
+        project_id=issue.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_updated",
+            "issueId": issue.id,
+            "issueKey": issue.issue_key,
+            "projectId": issue.project_id,
+            "changedFields": ["comments"],
+            "status": issue.status.value,
+        }
+    )
     return updated
 
 
@@ -120,6 +162,7 @@ def delete_comment(
     comment_id: str,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Comment:
     comment = store.get_comment(comment_id)
     if not comment:
@@ -148,5 +191,24 @@ def delete_comment(
         actor=current_user,
         action="comment_deleted",
         metadata={"comment_id": comment_id},
+    )
+    record_issue_timeline(
+        store,
+        issue_id=issue.id,
+        action="comment_deleted",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        old_value=comment_id,
+        project_id=issue.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_updated",
+            "issueId": issue.id,
+            "issueKey": issue.issue_key,
+            "projectId": issue.project_id,
+            "changedFields": ["comments"],
+            "status": issue.status.value,
+        }
     )
     return updated

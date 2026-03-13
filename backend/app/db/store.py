@@ -19,6 +19,7 @@ from app.models.schemas import (
     IssueActivity,
     IssueLink,
     IssuePriority,
+    IssueTimelineEvent,
     IssueStatus,
     IssueType,
     Notification,
@@ -102,6 +103,18 @@ class BaseStore(ABC):
     ) -> list[Issue]: ...
 
     @abstractmethod
+    def search_issues(
+        self,
+        *,
+        q: str | None = None,
+        project_id: str | None = None,
+        status: IssueStatus | None = None,
+        priority: IssuePriority | None = None,
+        assignee_id: str | None = None,
+        limit: int = 25,
+    ) -> list[Issue]: ...
+
+    @abstractmethod
     def update_issue(self, issue: Issue) -> Issue: ...
 
     @abstractmethod
@@ -124,6 +137,15 @@ class BaseStore(ABC):
 
     @abstractmethod
     def list_issue_activity(self, issue_id: str) -> list[IssueActivity]: ...
+
+    @abstractmethod
+    def create_issue_timeline_event(self, event: IssueTimelineEvent) -> IssueTimelineEvent: ...
+
+    @abstractmethod
+    def list_issue_timeline(self, issue_id: str, limit: int = 200) -> list[IssueTimelineEvent]: ...
+
+    @abstractmethod
+    def list_recent_timeline(self, project_id: str | None = None, limit: int = 40) -> list[IssueTimelineEvent]: ...
 
     @abstractmethod
     def create_ai_analysis_log(self, log: AIAnalysisLog) -> AIAnalysisLog: ...
@@ -191,6 +213,7 @@ class InMemoryStore(BaseStore):
         self.issues: dict[str, Issue] = {}
         self.comments: dict[str, Comment] = {}
         self.issue_activities: dict[str, IssueActivity] = {}
+        self.issue_timeline_events: dict[str, IssueTimelineEvent] = {}
         self.ai_analysis_logs: dict[str, AIAnalysisLog] = {}
         self.root_cause_analyses: dict[str, RootCauseAnalysis] = {}
         self.issue_links: dict[str, IssueLink] = {}
@@ -343,6 +366,45 @@ class InMemoryStore(BaseStore):
             result.append(deepcopy(issue))
         return sorted(result, key=lambda item: (item.backlog_order, item.created_at))
 
+    def search_issues(
+        self,
+        *,
+        q: str | None = None,
+        project_id: str | None = None,
+        status: IssueStatus | None = None,
+        priority: IssuePriority | None = None,
+        assignee_id: str | None = None,
+        limit: int = 25,
+    ) -> list[Issue]:
+        needle = (q or "").strip().lower()
+        scored: list[tuple[int, Issue]] = []
+        for issue in self.issues.values():
+            if project_id and issue.project_id != project_id:
+                continue
+            if status and issue.status != status:
+                continue
+            if priority and issue.priority != priority:
+                continue
+            if assignee_id and issue.assignee_id != assignee_id:
+                continue
+
+            score = 0
+            if needle:
+                title = issue.title.lower()
+                description = issue.description.lower()
+                labels_blob = " ".join(issue.labels).lower()
+                if needle in title:
+                    score += 8
+                if needle in description:
+                    score += 4
+                if needle in labels_blob:
+                    score += 6
+                if score == 0:
+                    continue
+            scored.append((score, deepcopy(issue)))
+        scored.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
+        return [item[1] for item in scored[:limit]]
+
     def update_issue(self, issue: Issue) -> Issue:
         self.issues[issue.id] = deepcopy(issue)
         return deepcopy(issue)
@@ -376,6 +438,20 @@ class InMemoryStore(BaseStore):
     def list_issue_activity(self, issue_id: str) -> list[IssueActivity]:
         values = [deepcopy(item) for item in self.issue_activities.values() if item.issue_id == issue_id]
         return sorted(values, key=lambda item: item.timestamp, reverse=True)
+
+    def create_issue_timeline_event(self, event: IssueTimelineEvent) -> IssueTimelineEvent:
+        self.issue_timeline_events[event.id] = deepcopy(event)
+        return deepcopy(event)
+
+    def list_issue_timeline(self, issue_id: str, limit: int = 200) -> list[IssueTimelineEvent]:
+        values = [deepcopy(item) for item in self.issue_timeline_events.values() if item.issue_id == issue_id]
+        return sorted(values, key=lambda item: item.timestamp, reverse=True)[:limit]
+
+    def list_recent_timeline(self, project_id: str | None = None, limit: int = 40) -> list[IssueTimelineEvent]:
+        values = list(self.issue_timeline_events.values())
+        if project_id:
+            values = [item for item in values if item.project_id == project_id]
+        return sorted([deepcopy(item) for item in values], key=lambda item: item.timestamp, reverse=True)[:limit]
 
     def create_ai_analysis_log(self, log: AIAnalysisLog) -> AIAnalysisLog:
         self.ai_analysis_logs[log.id] = deepcopy(log)
@@ -499,6 +575,7 @@ class MongoStore(BaseStore):
         self.issues_col: Collection = self.db["issues"]
         self.comments_col: Collection = self.db["comments"]
         self.issue_activity_col: Collection = self.db["issue_activity"]
+        self.issue_history_col: Collection = self.db["issue_history"]
         self.ai_analysis_logs_col: Collection = self.db["ai_analysis_logs"]
         self.root_cause_analysis_col: Collection = self.db["root_cause_analysis"]
         self.issue_links_col: Collection = self.db["issue_links"]
@@ -527,31 +604,46 @@ class MongoStore(BaseStore):
         row.pop("_id", None)
         return model_type.model_validate(row)
 
+    @staticmethod
+    def _safe_create_index(collection: Collection, keys, **kwargs) -> None:
+        try:
+            collection.create_index(keys, **kwargs)
+        except Exception:
+            # Keep startup resilient when legacy/managed indexes already exist.
+            pass
+
     def _ensure_indexes(self) -> None:
-        self.users_col.create_index("email", unique=True)
-        self.projects_col.create_index("key", unique=True)
-        self.projects_col.create_index("members.user_id")
-        self.issues_col.create_index("project_id")
-        self.issues_col.create_index("status")
-        self.issues_col.create_index("priority")
-        self.issues_col.create_index("assignee_id")
-        self.issues_col.create_index("source")
-        self.issues_col.create_index("module")
-        self.issues_col.create_index("issue_key", unique=True, sparse=True)
-        self.issues_col.create_index("labels")
-        self.issues_col.create_index([("title", "text"), ("description", "text")])
-        self.comments_col.create_index("issue_id")
-        self.comments_col.create_index("parent_id")
-        self.issue_activity_col.create_index("issue_id")
-        self.ai_analysis_logs_col.create_index("analysis_type")
-        self.ai_analysis_logs_col.create_index("created_at")
-        self.root_cause_analysis_col.create_index("issue_id", unique=True)
-        self.root_cause_analysis_col.create_index("analyzed_at")
-        self.issue_links_col.create_index("source_issue_id")
-        self.issue_links_col.create_index("target_issue_id")
-        self.sprints_col.create_index("project_id")
-        self.notifications_col.create_index("user_id")
-        self.audit_col.create_index("timestamp")
+        self._safe_create_index(self.users_col, "email", unique=True)
+        self._safe_create_index(self.projects_col, "key", unique=True)
+        self._safe_create_index(self.projects_col, "members.user_id")
+        self._safe_create_index(self.issues_col, "project_id")
+        self._safe_create_index(self.issues_col, "status")
+        self._safe_create_index(self.issues_col, "priority")
+        self._safe_create_index(self.issues_col, "assignee_id")
+        self._safe_create_index(self.issues_col, "source")
+        self._safe_create_index(self.issues_col, "module")
+        self._safe_create_index(self.issues_col, "issue_key", unique=True, sparse=True)
+        self._safe_create_index(self.issues_col, "labels")
+        self._safe_create_index(
+            self.issues_col,
+            [("title", "text"), ("description", "text"), ("labels", "text")],
+            name="issue_search_text_idx",
+        )
+        self._safe_create_index(self.comments_col, "issue_id")
+        self._safe_create_index(self.comments_col, "parent_id")
+        self._safe_create_index(self.issue_activity_col, "issue_id")
+        self._safe_create_index(self.issue_history_col, "issue_id")
+        self._safe_create_index(self.issue_history_col, "project_id")
+        self._safe_create_index(self.issue_history_col, "timestamp")
+        self._safe_create_index(self.ai_analysis_logs_col, "analysis_type")
+        self._safe_create_index(self.ai_analysis_logs_col, "created_at")
+        self._safe_create_index(self.root_cause_analysis_col, "issue_id", unique=True)
+        self._safe_create_index(self.root_cause_analysis_col, "analyzed_at")
+        self._safe_create_index(self.issue_links_col, "source_issue_id")
+        self._safe_create_index(self.issue_links_col, "target_issue_id")
+        self._safe_create_index(self.sprints_col, "project_id")
+        self._safe_create_index(self.notifications_col, "user_id")
+        self._safe_create_index(self.audit_col, "timestamp")
 
     def user_count(self) -> int:
         return self.users_col.count_documents({})
@@ -677,6 +769,48 @@ class MongoStore(BaseStore):
         cursor = self.issues_col.find(query).sort([("backlog_order", 1), ("created_at", 1)])
         return [self._load(Issue, row) for row in cursor]
 
+    def search_issues(
+        self,
+        *,
+        q: str | None = None,
+        project_id: str | None = None,
+        status: IssueStatus | None = None,
+        priority: IssuePriority | None = None,
+        assignee_id: str | None = None,
+        limit: int = 25,
+    ) -> list[Issue]:
+        filters: dict[str, Any] = {}
+        if project_id:
+            filters["project_id"] = project_id
+        if status:
+            filters["status"] = status.value
+        if priority:
+            filters["priority"] = priority.value
+        if assignee_id:
+            filters["assignee_id"] = assignee_id
+
+        if not q:
+            cursor = self.issues_col.find(filters).sort("updated_at", -1).limit(limit)
+            return [self._load(Issue, row) for row in cursor]
+
+        text_query = {**filters, "$text": {"$search": q}}
+        rows = list(
+            self.issues_col.find(text_query, {"score": {"$meta": "textScore"}})
+            .sort([("score", {"$meta": "textScore"}), ("updated_at", -1)])
+            .limit(limit)
+        )
+
+        # Compatibility fallback when labels are not covered by an existing text index.
+        regex_rows = list(
+            self.issues_col.find({**filters, "labels": {"$elemMatch": {"$regex": q, "$options": "i"}}})
+            .sort("updated_at", -1)
+            .limit(limit)
+        )
+        deduped: dict[str, dict[str, Any]] = {}
+        for row in rows + regex_rows:
+            deduped[row.get("id")] = row
+        return [self._load(Issue, row) for row in list(deduped.values())[:limit]]
+
     def update_issue(self, issue: Issue) -> Issue:
         self.issues_col.update_one({"id": issue.id}, {"$set": self._dump_for_update(issue)})
         return issue
@@ -707,6 +841,21 @@ class MongoStore(BaseStore):
     def list_issue_activity(self, issue_id: str) -> list[IssueActivity]:
         cursor = self.issue_activity_col.find({"issue_id": issue_id}).sort("timestamp", -1)
         return [self._load(IssueActivity, row) for row in cursor]
+
+    def create_issue_timeline_event(self, event: IssueTimelineEvent) -> IssueTimelineEvent:
+        self.issue_history_col.insert_one(self._dump(event))
+        return event
+
+    def list_issue_timeline(self, issue_id: str, limit: int = 200) -> list[IssueTimelineEvent]:
+        cursor = self.issue_history_col.find({"issue_id": issue_id}).sort("timestamp", -1).limit(limit)
+        return [self._load(IssueTimelineEvent, row) for row in cursor]
+
+    def list_recent_timeline(self, project_id: str | None = None, limit: int = 40) -> list[IssueTimelineEvent]:
+        query: dict[str, Any] = {}
+        if project_id:
+            query["project_id"] = project_id
+        cursor = self.issue_history_col.find(query).sort("timestamp", -1).limit(limit)
+        return [self._load(IssueTimelineEvent, row) for row in cursor]
 
     def create_ai_analysis_log(self, log: AIAnalysisLog) -> AIAnalysisLog:
         self.ai_analysis_logs_col.insert_one(self._dump(log))

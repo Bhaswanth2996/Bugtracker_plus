@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
-from app.core.deps import get_current_user, get_store
+from app.core.deps import get_current_user, get_realtime_publisher, get_store
 from app.db.store import BaseStore
 from app.models.schemas import (
     Attachment,
@@ -25,8 +25,10 @@ from app.models.schemas import (
 from app.services.activity import log_issue_activity
 from app.services.attachments import storage
 from app.services.audit import log_action
+from app.services.issue_timeline import record_issue_timeline
 from app.services.notifications import notify_user
 from app.services.permissions import can_manage_project, ensure_project_access
+from app.services.realtime import RealtimePublisher
 
 router = APIRouter(prefix="/issues", tags=["issues"])
 project_router = APIRouter(prefix="/projects", tags=["issues"])
@@ -41,6 +43,7 @@ def create_issue(
     payload: IssueCreate,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Issue:
     ensure_project_access(store, current_user, payload.project_id)
     if payload.assignee_id and not store.get_user_by_id(payload.assignee_id):
@@ -87,6 +90,35 @@ def create_issue(
             message=f"You were assigned issue {created.title}.",
             issue_id=created.id,
             project_id=created.project_id,
+        )
+    record_issue_timeline(
+        store,
+        issue_id=created.id,
+        action="issue_created",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        new_value=created.title,
+        project_id=created.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_created",
+            "issueId": created.id,
+            "issueKey": created.issue_key,
+            "projectId": created.project_id,
+            "status": created.status.value,
+            "assigneeId": created.assignee_id,
+        }
+    )
+    if created.assignee_id:
+        publisher.publish(
+            {
+                "event": "issue_assigned",
+                "issueId": created.id,
+                "issueKey": created.issue_key,
+                "projectId": created.project_id,
+                "assigneeId": created.assignee_id,
+            }
         )
     return created
 
@@ -151,6 +183,7 @@ def update_issue(
     payload: IssueUpdate,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Issue:
     issue = store.get_issue(issue_id)
     if not issue:
@@ -167,9 +200,11 @@ def update_issue(
 
     old_status = issue.status
     old_assignee = issue.assignee_id
+    changed_fields: list[tuple[str, object, object]] = []
     for field_name, value in updates.items():
         old_value = getattr(issue, field_name)
         if old_value != value:
+            changed_fields.append((field_name, old_value, value))
             issue.history.append(
                 IssueHistoryItem(
                     by=current_user.id,
@@ -223,6 +258,55 @@ def update_issue(
         action="issue_updated",
         metadata=updates,
     )
+    timeline_action_by_field = {
+        "status": "status_changed",
+        "priority": "priority_changed",
+        "assignee_id": "assignee_changed",
+        "labels": "labels_updated",
+    }
+    for field_name, old_value, new_value in changed_fields:
+        record_issue_timeline(
+            store,
+            issue_id=updated.id,
+            action=timeline_action_by_field.get(field_name, f"{field_name}_updated"),
+            old_value=old_value,
+            new_value=new_value,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            project_id=updated.project_id,
+        )
+    publisher.publish(
+        {
+            "event": "issue_updated",
+            "issueId": updated.id,
+            "issueKey": updated.issue_key,
+            "projectId": updated.project_id,
+            "status": updated.status.value,
+            "changedFields": [field_name for field_name, _, _ in changed_fields],
+        }
+    )
+    if old_status != updated.status:
+        publisher.publish(
+            {
+                "event": "issue_status_changed",
+                "issueId": updated.id,
+                "issueKey": updated.issue_key,
+                "projectId": updated.project_id,
+                "status": updated.status.value,
+                "oldStatus": old_status.value,
+            }
+        )
+    if old_assignee != updated.assignee_id:
+        publisher.publish(
+            {
+                "event": "issue_assigned",
+                "issueId": updated.id,
+                "issueKey": updated.issue_key,
+                "projectId": updated.project_id,
+                "assigneeId": updated.assignee_id,
+                "oldAssigneeId": old_assignee,
+            }
+        )
     return updated
 
 
@@ -231,6 +315,7 @@ def delete_issue(
     issue_id: str,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> None:
     issue = store.get_issue(issue_id)
     if not issue:
@@ -254,6 +339,23 @@ def delete_issue(
         entity_id=issue_id,
         details={"project_id": issue.project_id},
     )
+    record_issue_timeline(
+        store,
+        issue_id=issue_id,
+        action="issue_deleted",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        old_value=issue.title,
+        project_id=issue.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_deleted",
+            "issueId": issue_id,
+            "issueKey": issue.issue_key,
+            "projectId": issue.project_id,
+        }
+    )
 
 
 @router.post("/{issue_id}/attachments", response_model=Issue)
@@ -262,6 +364,7 @@ async def upload_attachment(
     file: UploadFile = File(...),
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Issue:
     issue = store.get_issue(issue_id)
     if not issue:
@@ -293,6 +396,25 @@ async def upload_attachment(
         entity_id=issue.id,
         details={"project_id": issue.project_id, "attachment_id": attachment.id, "filename": filename},
     )
+    record_issue_timeline(
+        store,
+        issue_id=issue.id,
+        action="attachment_added",
+        user_id=current_user.id,
+        user_name=current_user.name,
+        new_value=filename,
+        project_id=issue.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_updated",
+            "issueId": issue.id,
+            "issueKey": issue.issue_key,
+            "projectId": issue.project_id,
+            "status": updated.status.value,
+            "changedFields": ["attachments"],
+        }
+    )
     return updated
 
 
@@ -302,6 +424,7 @@ def move_issue_to_sprint(
     payload: IssueMoveToSprint,
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
+    publisher: RealtimePublisher = Depends(get_realtime_publisher),
 ) -> Issue:
     issue = store.get_issue(issue_id)
     if not issue:
@@ -339,6 +462,26 @@ def move_issue_to_sprint(
         entity_type="issue",
         entity_id=issue.id,
         details={"project_id": issue.project_id, "sprint_id": payload.sprint_id},
+    )
+    record_issue_timeline(
+        store,
+        issue_id=issue.id,
+        action="sprint_changed",
+        old_value=None,
+        new_value=payload.sprint_id,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        project_id=issue.project_id,
+    )
+    publisher.publish(
+        {
+            "event": "issue_updated",
+            "issueId": issue.id,
+            "issueKey": issue.issue_key,
+            "projectId": issue.project_id,
+            "status": updated.status.value,
+            "changedFields": ["sprint_id", "backlog_order"],
+        }
     )
     return updated
 
