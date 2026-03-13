@@ -1,4 +1,12 @@
+import os
+
 from fastapi.testclient import TestClient
+
+os.environ["BUGTRACKER_STORE_BACKEND"] = "memory"
+os.environ["BUGTRACKER_ENABLE_DEMO_SEED"] = "false"
+
+from app.core.config import get_settings
+get_settings.cache_clear()
 
 from app.main import app
 

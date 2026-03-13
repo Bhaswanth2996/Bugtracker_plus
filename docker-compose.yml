@@ -18,6 +18,7 @@ services:
     restart: unless-stopped
     environment:
       BUGTRACKER_APP_ENV: development
+      BUGTRACKER_STORE_BACKEND: mongodb
       BUGTRACKER_JWT_SECRET_KEY: this-should-be-replaced-in-prod
       BUGTRACKER_MONGODB_URI: mongodb://mongodb:27017
       BUGTRACKER_MONGODB_DB_NAME: bugtrackerplus

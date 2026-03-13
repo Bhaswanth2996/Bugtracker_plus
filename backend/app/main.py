@@ -16,10 +16,14 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Path(settings.local_upload_dir).mkdir(parents=True, exist_ok=True)
-    if settings.mongodb_uri:
+    if settings.store_backend == "memory":
+        app.state.store = InMemoryStore()
+    elif settings.store_backend == "mongodb":
         app.state.store = MongoStore(settings.mongodb_uri, settings.mongodb_db_name)
     else:
-        app.state.store = InMemoryStore()
+        raise RuntimeError(
+            "Invalid BUGTRACKER_STORE_BACKEND. Supported values: mongodb, memory"
+        )
     if settings.enable_demo_seed:
         seed_demo_data(app.state.store)
     yield

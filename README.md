@@ -36,7 +36,7 @@ BugTracker+ is a Jira-inspired cloud-native issue management platform built with
   - Issues, Board, Backlog, Reports, Members, Settings
 - Reports & charts (status, priority, burndown, velocity)
 - Dashboard statistics + recent activity + assigned-to-me
-- Optional demo seed script with 40 AUTH issues
+- Optional demo seed script with 50 AUTH issues (including Epic/Story)
 
 ## Repository Structure
 
@@ -88,6 +88,7 @@ Services:
 - MongoDB: `mongodb://localhost:27017`
 
 `docker-compose.yml` enables demo seed data by default (`BUGTRACKER_ENABLE_DEMO_SEED=true`).
+Backend defaults to MongoDB storage (`BUGTRACKER_STORE_BACKEND=mongodb`) to persist issue updates/comments/status changes.
 
 ### Option B: Run services separately
 
