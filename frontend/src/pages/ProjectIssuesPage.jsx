@@ -13,6 +13,7 @@ export default function ProjectIssuesPage() {
   const [issues, setIssues] = useState([]);
   const [users, setUsers] = useState([]);
   const [filters, setFilters] = useState({
+    issueType: "",
     status: "",
     priority: "",
     assignee: "",
@@ -28,6 +29,7 @@ export default function ProjectIssuesPage() {
       }
       const response = await api.listIssues({
         project_id: project.id,
+        issue_type: filters.issueType || undefined,
         status: filters.status || undefined,
         priority: filters.priority || undefined,
         assignee_id: filters.assignee || undefined,
@@ -67,7 +69,7 @@ export default function ProjectIssuesPage() {
       {project?.key ? <ProjectWorkspaceTabs projectKey={project.key} /> : null}
       {error && <p className="text-sm text-rose-400">{error}</p>}
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 grid md:grid-cols-5 gap-2">
+      <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 grid md:grid-cols-6 gap-2">
         <div className="relative md:col-span-2">
           <Search className="h-4 w-4 absolute left-2 top-2.5 text-slate-500" />
           <input
@@ -79,6 +81,19 @@ export default function ProjectIssuesPage() {
             }
           />
         </div>
+        <select
+          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
+          value={filters.issueType}
+          onChange={(event) =>
+            setFilters((prev) => ({ ...prev, issueType: event.target.value }))
+          }
+        >
+          <option value="">As Issue Type</option>
+          <option value="story">Story</option>
+          <option value="bug">Bug</option>
+          <option value="epic">Epic</option>
+          <option value="task">Task</option>
+        </select>
         <select
           className="rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
           value={filters.status}

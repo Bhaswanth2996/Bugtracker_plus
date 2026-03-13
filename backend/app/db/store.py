@@ -19,6 +19,7 @@ from app.models.schemas import (
     IssueLink,
     IssuePriority,
     IssueStatus,
+    IssueType,
     Notification,
     Project,
     ProjectMember,
@@ -89,6 +90,7 @@ class BaseStore(ABC):
         self,
         *,
         project_id: str | None = None,
+        issue_type: IssueType | None = None,
         status: IssueStatus | None = None,
         priority: IssuePriority | None = None,
         assignee_id: str | None = None,
@@ -291,6 +293,7 @@ class InMemoryStore(BaseStore):
         self,
         *,
         project_id: str | None = None,
+        issue_type: IssueType | None = None,
         status: IssueStatus | None = None,
         priority: IssuePriority | None = None,
         assignee_id: str | None = None,
@@ -303,6 +306,8 @@ class InMemoryStore(BaseStore):
         label_set = {label.lower() for label in (labels or [])}
         for issue in self.issues.values():
             if project_id and issue.project_id != project_id:
+                continue
+            if issue_type and issue.issue_type != issue_type:
                 continue
             if status and issue.status != status:
                 continue
@@ -591,6 +596,7 @@ class MongoStore(BaseStore):
         self,
         *,
         project_id: str | None = None,
+        issue_type: IssueType | None = None,
         status: IssueStatus | None = None,
         priority: IssuePriority | None = None,
         assignee_id: str | None = None,
@@ -601,6 +607,8 @@ class MongoStore(BaseStore):
         query: dict[str, Any] = {}
         if project_id:
             query["project_id"] = project_id
+        if issue_type:
+            query["issue_type"] = issue_type.value
         if status:
             query["status"] = status.value
         if priority:

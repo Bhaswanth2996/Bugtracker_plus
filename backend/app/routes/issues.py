@@ -16,6 +16,7 @@ from app.models.schemas import (
     IssueMoveToSprint,
     IssuePriority,
     IssueStatus,
+    IssueType,
     IssueUpdate,
     NotificationType,
     UserInDB,
@@ -91,6 +92,7 @@ def create_issue(
 @router.get("", response_model=list[Issue])
 def list_issues(
     project_id: str | None = Query(default=None),
+    issue_type: IssueType | None = Query(default=None),
     status: IssueStatus | None = Query(default=None),
     priority: IssuePriority | None = Query(default=None),
     assignee_id: str | None = Query(default=None),
@@ -105,6 +107,7 @@ def list_issues(
     parsed_labels = [label.strip() for label in (labels or "").split(",") if label.strip()]
     return store.list_issues(
         project_id=project_id,
+        issue_type=issue_type,
         status=status,
         priority=priority,
         assignee_id=assignee_id,
