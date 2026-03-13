@@ -53,6 +53,18 @@ def list_projects(
     return allowed
 
 
+@router.get("/key/{project_key}", response_model=Project)
+def get_project_by_key(
+    project_key: str,
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> Project:
+    project = store.get_project_by_key(project_key)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return ensure_project_access(store, current_user, project.id)
+
+
 @router.get("/{project_id}", response_model=Project)
 def get_project(
     project_id: str,

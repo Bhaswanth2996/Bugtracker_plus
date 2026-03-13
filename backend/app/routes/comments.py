@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.deps import get_current_user, get_store
 from app.db.store import BaseStore
 from app.models.schemas import Comment, CommentCreate, CommentUpdate, NotificationType, UserInDB, UserRole
+from app.services.activity import log_issue_activity
 from app.services.audit import log_action
 from app.services.notifications import notify_user
 from app.services.permissions import ensure_project_access
@@ -54,6 +55,13 @@ def create_comment(
             issue_id=issue.id,
             project_id=issue.project_id,
         )
+    log_issue_activity(
+        store,
+        issue_id=issue.id,
+        actor=current_user,
+        action="comment_added",
+        metadata={"comment_id": created.id, "parent_id": payload.parent_id},
+    )
     return created
 
 
@@ -97,6 +105,13 @@ def edit_comment(
         entity_id=comment_id,
         details={"project_id": issue.project_id, "issue_id": issue.id},
     )
+    log_issue_activity(
+        store,
+        issue_id=issue.id,
+        actor=current_user,
+        action="comment_updated",
+        metadata={"comment_id": comment_id},
+    )
     return updated
 
 
@@ -126,5 +141,12 @@ def delete_comment(
         entity_type="comment",
         entity_id=comment_id,
         details={"project_id": issue.project_id, "issue_id": issue.id},
+    )
+    log_issue_activity(
+        store,
+        issue_id=issue.id,
+        actor=current_user,
+        action="comment_deleted",
+        metadata={"comment_id": comment_id},
     )
     return updated

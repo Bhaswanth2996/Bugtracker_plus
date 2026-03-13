@@ -20,17 +20,23 @@ BugTracker+ is a Jira-inspired cloud-native issue management platform built with
   - title, description, issue type (`bug`, `task`, `story`, `epic`)
   - status (`todo`, `in_progress`, `done`)
   - priority (`low`, `medium`, `high`, `critical`)
+  - issue keys (`AUTH-1`, `AUTH-2`, ...)
   - reporter, assignee, labels
   - attachments
   - timestamps and history tracking
-- Kanban board with drag/drop status updates
+- Kanban board with dnd-kit drag/drop status updates
 - Sprint management (create/start/close)
-- Backlog prioritization and reorder
+- Backlog prioritization with drag reorder + drag to sprint targets
 - Threaded comments with edit/delete
-- Audit log activity timeline
-- Search and filters (status/priority/project/assignee/text)
+- Issue activity timeline (`issue_activity`) + audit timeline
+- Search and filters (status/priority/project/assignee/labels/text)
+- Issue linking (`blocks`, `blocked_by`, `relates_to`, `duplicates`)
 - Notifications for assignment/comments/status changes
-- Dashboard statistics and recent activity
+- Project workspace routes (`/project/:key`) with tabs:
+  - Issues, Board, Backlog, Reports, Members, Settings
+- Reports & charts (status, priority, burndown, velocity)
+- Dashboard statistics + recent activity + assigned-to-me
+- Optional demo seed script with 40 AUTH issues
 
 ## Repository Structure
 
@@ -81,6 +87,8 @@ Services:
 - Backend: `http://localhost:8000`
 - MongoDB: `mongodb://localhost:27017`
 
+`docker-compose.yml` enables demo seed data by default (`BUGTRACKER_ENABLE_DEMO_SEED=true`).
+
 ### Option B: Run services separately
 
 Backend:
@@ -99,6 +107,18 @@ cp frontend/.env.example frontend/.env
 npm --prefix frontend run dev
 ```
 
+### Seed demo data manually
+
+```bash
+npm run seed:demo
+```
+
+Default seeded users:
+- `admin@jira.com` / `Password123!`
+- `pm@jira.com` / `Password123!`
+- `dev@jira.com` / `Password123!`
+- `qa@jira.com` / `Password123!`
+
 ## API Summary
 
 - **Auth**
@@ -113,21 +133,28 @@ npm --prefix frontend run dev
 - **Projects**
   - `POST /projects`
   - `GET /projects`
+  - `GET /projects/key/{key}`
   - `GET /projects/{id}`
   - `PUT /projects/{id}`
   - `POST /projects/{id}/members`
   - `GET /projects/{id}/dashboard`
+  - `GET /projects/{id}/reports`
   - `GET /projects/{id}/backlog`
   - `PUT /projects/{id}/backlog/reorder`
   - `GET /projects/{id}/board`
 - **Issues**
   - `POST /issues`
   - `GET /issues`
+  - `GET /issues/key/{issueKey}`
   - `GET /issues/{id}`
   - `PUT /issues/{id}`
   - `DELETE /issues/{id}`
   - `PUT /issues/{id}/sprint`
   - `POST /issues/{id}/attachments`
+  - `GET /issues/{id}/activity`
+  - `GET /issues/{id}/links`
+  - `POST /issues/{id}/links`
+  - `DELETE /issues/{id}/links/{linkId}`
 - **Comments**
   - `POST /comments`
   - `GET /comments/{issueId}`

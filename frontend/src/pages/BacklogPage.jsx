@@ -1,14 +1,34 @@
-import { useEffect, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { ArrowDown, ArrowUp, ListTree } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import PriorityBadge from "../components/PriorityBadge";
+import ProjectWorkspaceTabs from "../components/ProjectWorkspaceTabs";
 import { useAuth } from "../context/AuthContext";
 import { api, parseApiError } from "../services/api";
+import { useProjectResolver } from "../utils/useProjectResolver";
 
 const managerRoles = new Set(["admin", "project_manager"]);
 
 export default function BacklogPage() {
-  const { projectId } = useParams();
+  const { projectId, projectKey } = useParams();
   const { user } = useAuth();
+  const { project, projectError } = useProjectResolver(projectId, projectKey);
   const [backlogIssues, setBacklogIssues] = useState([]);
   const [sprints, setSprints] = useState([]);
   const [error, setError] = useState("");
@@ -16,9 +36,12 @@ export default function BacklogPage() {
 
   async function loadData() {
     try {
+      if (!project?.id) {
+        return;
+      }
       const [backlogResp, sprintResp] = await Promise.all([
-        api.getBacklog(projectId),
-        api.listSprints(projectId),
+        api.getBacklog(project.id),
+        api.listSprints(project.id),
       ]);
       setBacklogIssues(backlogResp.data);
       setSprints(sprintResp.data);
@@ -30,25 +53,34 @@ export default function BacklogPage() {
 
   useEffect(() => {
     loadData();
-  }, [projectId]);
+  }, [project?.id]);
 
-  async function reorder(direction, index) {
-    const next = [...backlogIssues];
-    const target = index + direction;
-    if (target < 0 || target >= next.length) {
-      return;
+  useEffect(() => {
+    if (projectError) {
+      setError(projectError);
     }
-    [next[index], next[target]] = [next[target], next[index]];
-    const payload = next.map((issue, idx) => ({
+  }, [projectError]);
+
+  async function persistOrder(next) {
+    const payload = next.map((issue, index) => ({
       issue_id: issue.id,
-      backlog_order: idx + 1,
+      backlog_order: index + 1,
     }));
     try {
-      await api.reorderBacklog(projectId, payload);
-      setBacklogIssues(next.map((issue, idx) => ({ ...issue, backlog_order: idx + 1 })));
+      await api.reorderBacklog(project.id, payload);
+      setBacklogIssues(next.map((issue, index) => ({ ...issue, backlog_order: index + 1 })));
     } catch (err) {
       setError(parseApiError(err));
     }
+  }
+
+  async function reorder(direction, index) {
+    const target = index + direction;
+    if (target < 0 || target >= backlogIssues.length) {
+      return;
+    }
+    const next = arrayMove(backlogIssues, index, target);
+    await persistOrder(next);
   }
 
   async function assignIssueToSprint(issueId, sprintId) {
@@ -64,7 +96,7 @@ export default function BacklogPage() {
     event.preventDefault();
     try {
       await api.createSprint({
-        project_id: projectId,
+        project_id: project.id,
         name: sprintForm.name,
         goal: sprintForm.goal,
       });
@@ -88,17 +120,50 @@ export default function BacklogPage() {
     }
   }
 
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sprintDropTargets = useMemo(
+    () => sprints.filter((item) => item.status !== "closed"),
+    [sprints]
+  );
+
+  async function onDragEnd(event) {
+    const activeId = event.active?.id;
+    const overId = event.over?.id;
+    if (!activeId || !overId) {
+      return;
+    }
+
+    const issueIndex = backlogIssues.findIndex((item) => item.id === activeId);
+    if (issueIndex === -1) {
+      return;
+    }
+
+    if (String(overId).startsWith("sprint:")) {
+      const sprintId = String(overId).replace("sprint:", "");
+      await assignIssueToSprint(activeId, sprintId);
+      return;
+    }
+
+    const overIndex = backlogIssues.findIndex((item) => item.id === overId);
+    if (overIndex === -1 || overIndex === issueIndex) {
+      return;
+    }
+    const reordered = arrayMove(backlogIssues, issueIndex, overIndex);
+    await persistOrder(reordered);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Backlog</h2>
+        <h2 className="text-2xl font-semibold">Backlog - {project?.key || "PRJ"}</h2>
         <Link
-          to={`/projects/${projectId}/board`}
+          to={`/project/${project?.key || projectKey}/board`}
           className="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800"
         >
           Open Board
         </Link>
       </div>
+      {project?.key ? <ProjectWorkspaceTabs projectKey={project.key} /> : null}
       {error && <p className="text-sm text-rose-400">{error}</p>}
 
       {managerRoles.has(user?.role) && (
@@ -133,13 +198,17 @@ export default function BacklogPage() {
         <h3 className="font-semibold mb-2">Sprints</h3>
         <div className="space-y-2">
           {sprints.map((sprint) => (
-            <div
+            <SprintDropTarget
               key={sprint.id}
-              className="rounded-md border border-slate-800 bg-slate-950 p-3 flex flex-wrap gap-2 items-center justify-between"
+              sprint={sprint}
+              issueCountHint={0}
             >
-              <div>
-                <p className="font-medium">{sprint.name}</p>
-                <p className="text-xs text-slate-400">{sprint.status}</p>
+              <div className="flex items-center gap-2">
+                <ListTree className="h-4 w-4 text-slate-500" />
+                <div>
+                  <p className="font-medium">{sprint.name}</p>
+                  <p className="text-xs text-slate-400">{sprint.status}</p>
+                </div>
               </div>
               {managerRoles.has(user?.role) && (
                 <div className="flex gap-2">
@@ -163,65 +232,117 @@ export default function BacklogPage() {
                   )}
                 </div>
               )}
-            </div>
+            </SprintDropTarget>
           ))}
         </div>
       </section>
 
       <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
         <h3 className="font-semibold mb-2">Prioritized Backlog</h3>
-        <div className="space-y-2">
-          {backlogIssues.map((issue, index) => (
-            <div
-              key={issue.id}
-              className="rounded-md border border-slate-800 bg-slate-950 p-3 flex flex-wrap gap-2 items-center justify-between"
-            >
-              <div>
-                <Link to={`/issues/${issue.id}`} className="font-medium hover:underline">
-                  {issue.title}
-                </Link>
-                <p className="text-xs text-slate-400">{issue.priority}</p>
-              </div>
-              <div className="flex gap-2 items-center">
-                {managerRoles.has(user?.role) && (
-                  <>
-                    <button
-                      type="button"
-                      className="rounded-md border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
-                      onClick={() => reorder(-1, index)}
-                    >
-                      Up
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-md border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
-                      onClick={() => reorder(1, index)}
-                    >
-                      Down
-                    </button>
-                  </>
-                )}
-                <select
-                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs"
-                  onChange={(event) =>
-                    event.target.value && assignIssueToSprint(issue.id, event.target.value)
-                  }
-                  defaultValue=""
-                >
-                  <option value="">Assign to sprint</option>
-                  {sprints
-                    .filter((sprint) => sprint.status !== "closed")
-                    .map((sprint) => (
-                      <option key={sprint.id} value={sprint.id}>
-                        {sprint.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={backlogIssues.map((issue) => issue.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {backlogIssues.map((issue, index) => (
+                <SortableBacklogIssue
+                  key={issue.id}
+                  issue={issue}
+                  managerCanEdit={managerRoles.has(user?.role)}
+                  onReorderUp={() => reorder(-1, index)}
+                  onReorderDown={() => reorder(1, index)}
+                  onAssignIssueToSprint={assignIssueToSprint}
+                  sprintDropTargets={sprintDropTargets}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
       </section>
+    </div>
+  );
+}
+
+function SortableBacklogIssue({
+  issue,
+  managerCanEdit,
+  onReorderUp,
+  onReorderDown,
+  onAssignIssueToSprint,
+  sprintDropTargets,
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: issue.id,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.65 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-md border border-slate-800 bg-slate-950 p-3 flex flex-wrap gap-2 items-center justify-between hover:bg-slate-900 transition"
+    >
+      <button
+        type="button"
+        className="flex-1 text-left cursor-grab active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <p className="font-medium">{issue.issue_key ? `${issue.issue_key} · ` : ""}{issue.title}</p>
+        <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+          <PriorityBadge priority={issue.priority} />
+          <span>{issue.issue_type}</span>
+        </div>
+      </button>
+      <div className="flex gap-2 items-center">
+        {managerCanEdit && (
+          <>
+            <button
+              type="button"
+              className="rounded-md border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+              onClick={onReorderUp}
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+              onClick={onReorderDown}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+        <select
+          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs"
+          onChange={(event) =>
+            event.target.value && onAssignIssueToSprint(issue.id, event.target.value)
+          }
+          defaultValue=""
+        >
+          <option value="">Assign to sprint</option>
+          {sprintDropTargets.map((sprint) => (
+            <option key={sprint.id} value={sprint.id}>
+              {sprint.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function SprintDropTarget({ sprint, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `sprint:${sprint.id}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-md border p-3 flex flex-wrap gap-2 items-center justify-between transition ${
+        isOver ? "border-brand-500 bg-brand-600/10" : "border-slate-800 bg-slate-950"
+      }`}
+    >
+      {children}
     </div>
   );
 }

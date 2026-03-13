@@ -15,13 +15,14 @@ from app.models.schemas import (
     Comment,
     DashboardStats,
     Issue,
+    IssueActivity,
+    IssueLink,
     IssuePriority,
     IssueStatus,
     Notification,
     Project,
     ProjectMember,
     Sprint,
-    SprintStatus,
     UserInDB,
     UserProfile,
     UserRole,
@@ -78,6 +79,12 @@ class BaseStore(ABC):
     def get_issue(self, issue_id: str) -> Issue | None: ...
 
     @abstractmethod
+    def get_issue_by_key(self, issue_key: str) -> Issue | None: ...
+
+    @abstractmethod
+    def next_issue_sequence(self, project_id: str) -> int: ...
+
+    @abstractmethod
     def list_issues(
         self,
         *,
@@ -86,6 +93,7 @@ class BaseStore(ABC):
         priority: IssuePriority | None = None,
         assignee_id: str | None = None,
         sprint_id: str | None = None,
+        labels: list[str] | None = None,
         search: str | None = None,
     ) -> list[Issue]: ...
 
@@ -106,6 +114,12 @@ class BaseStore(ABC):
 
     @abstractmethod
     def update_comment(self, comment: Comment) -> Comment: ...
+
+    @abstractmethod
+    def create_issue_activity(self, activity: IssueActivity) -> IssueActivity: ...
+
+    @abstractmethod
+    def list_issue_activity(self, issue_id: str) -> list[IssueActivity]: ...
 
     @abstractmethod
     def create_sprint(self, sprint: Sprint) -> Sprint: ...
@@ -129,13 +143,26 @@ class BaseStore(ABC):
     def mark_notification_read(self, notification_id: str, user_id: str) -> Notification | None: ...
 
     @abstractmethod
+    def create_issue_link(self, link: IssueLink) -> IssueLink: ...
+
+    @abstractmethod
+    def list_issue_links(self, issue_id: str) -> list[IssueLink]: ...
+
+    @abstractmethod
+    def delete_issue_link(self, link_id: str) -> bool: ...
+
+    @abstractmethod
     def create_audit_log(self, log: AuditLog) -> AuditLog: ...
 
     @abstractmethod
     def list_audit_logs(self, *, project_id: str | None = None, limit: int = 100) -> list[AuditLog]: ...
 
     @abstractmethod
-    def get_dashboard_stats(self, project_id: str | None = None) -> DashboardStats: ...
+    def get_dashboard_stats(
+        self,
+        project_id: str | None = None,
+        current_user_id: str | None = None,
+    ) -> DashboardStats: ...
 
 
 class InMemoryStore(BaseStore):
@@ -144,6 +171,8 @@ class InMemoryStore(BaseStore):
         self.projects: dict[str, Project] = {}
         self.issues: dict[str, Issue] = {}
         self.comments: dict[str, Comment] = {}
+        self.issue_activities: dict[str, IssueActivity] = {}
+        self.issue_links: dict[str, IssueLink] = {}
         self.sprints: dict[str, Sprint] = {}
         self.notifications: dict[str, Notification] = {}
         self.audit_logs: dict[str, AuditLog] = {}
@@ -238,6 +267,26 @@ class InMemoryStore(BaseStore):
         value = self.issues.get(issue_id)
         return deepcopy(value) if value else None
 
+    def get_issue_by_key(self, issue_key: str) -> Issue | None:
+        for issue in self.issues.values():
+            if issue.issue_key == issue_key:
+                return deepcopy(issue)
+        return None
+
+    def next_issue_sequence(self, project_id: str) -> int:
+        existing = [
+            issue for issue in self.issues.values() if issue.project_id == project_id and issue.issue_key
+        ]
+        if not existing:
+            return 1
+        numbers: list[int] = []
+        for issue in existing:
+            try:
+                numbers.append(int(str(issue.issue_key).split("-")[-1]))
+            except Exception:
+                continue
+        return (max(numbers) + 1) if numbers else (len(existing) + 1)
+
     def list_issues(
         self,
         *,
@@ -246,10 +295,12 @@ class InMemoryStore(BaseStore):
         priority: IssuePriority | None = None,
         assignee_id: str | None = None,
         sprint_id: str | None = None,
+        labels: list[str] | None = None,
         search: str | None = None,
     ) -> list[Issue]:
         result: list[Issue] = []
         needle = (search or "").lower().strip()
+        label_set = {label.lower() for label in (labels or [])}
         for issue in self.issues.values():
             if project_id and issue.project_id != project_id:
                 continue
@@ -260,6 +311,8 @@ class InMemoryStore(BaseStore):
             if assignee_id and issue.assignee_id != assignee_id:
                 continue
             if sprint_id is not None and issue.sprint_id != sprint_id:
+                continue
+            if label_set and not label_set.issubset({label.lower() for label in issue.labels}):
                 continue
             if needle and needle not in f"{issue.title} {issue.description}".lower():
                 continue
@@ -291,6 +344,14 @@ class InMemoryStore(BaseStore):
     def update_comment(self, comment: Comment) -> Comment:
         self.comments[comment.id] = deepcopy(comment)
         return deepcopy(comment)
+
+    def create_issue_activity(self, activity: IssueActivity) -> IssueActivity:
+        self.issue_activities[activity.id] = deepcopy(activity)
+        return deepcopy(activity)
+
+    def list_issue_activity(self, issue_id: str) -> list[IssueActivity]:
+        values = [deepcopy(item) for item in self.issue_activities.values() if item.issue_id == issue_id]
+        return sorted(values, key=lambda item: item.timestamp, reverse=True)
 
     def create_sprint(self, sprint: Sprint) -> Sprint:
         self.sprints[sprint.id] = deepcopy(sprint)
@@ -325,6 +386,24 @@ class InMemoryStore(BaseStore):
         notification.read = True
         return deepcopy(notification)
 
+    def create_issue_link(self, link: IssueLink) -> IssueLink:
+        self.issue_links[link.id] = deepcopy(link)
+        return deepcopy(link)
+
+    def list_issue_links(self, issue_id: str) -> list[IssueLink]:
+        values = [
+            deepcopy(item)
+            for item in self.issue_links.values()
+            if item.source_issue_id == issue_id or item.target_issue_id == issue_id
+        ]
+        return sorted(values, key=lambda item: item.created_at, reverse=True)
+
+    def delete_issue_link(self, link_id: str) -> bool:
+        if link_id not in self.issue_links:
+            return False
+        del self.issue_links[link_id]
+        return True
+
     def create_audit_log(self, log: AuditLog) -> AuditLog:
         self.audit_logs[log.id] = deepcopy(log)
         return deepcopy(log)
@@ -335,7 +414,11 @@ class InMemoryStore(BaseStore):
             logs = [log for log in logs if log.details.get("project_id") == project_id]
         return sorted([deepcopy(item) for item in logs], key=lambda item: item.timestamp, reverse=True)[:limit]
 
-    def get_dashboard_stats(self, project_id: str | None = None) -> DashboardStats:
+    def get_dashboard_stats(
+        self,
+        project_id: str | None = None,
+        current_user_id: str | None = None,
+    ) -> DashboardStats:
         issues = list(self.issues.values())
         if project_id:
             issues = [issue for issue in issues if issue.project_id == project_id]
@@ -350,6 +433,9 @@ class InMemoryStore(BaseStore):
             medium_priority=priority_counts.get(IssuePriority.medium.value, 0),
             high_priority=priority_counts.get(IssuePriority.high.value, 0),
             critical_priority=priority_counts.get(IssuePriority.critical.value, 0),
+            assigned_to_me=sum(1 for issue in issues if issue.assignee_id == current_user_id),
+            status_breakdown=dict(status_counts),
+            priority_breakdown=dict(priority_counts),
             recent_activity=self.list_audit_logs(project_id=project_id, limit=12),
         )
 
@@ -362,6 +448,8 @@ class MongoStore(BaseStore):
         self.projects_col: Collection = self.db["projects"]
         self.issues_col: Collection = self.db["issues"]
         self.comments_col: Collection = self.db["comments"]
+        self.issue_activity_col: Collection = self.db["issue_activity"]
+        self.issue_links_col: Collection = self.db["issue_links"]
         self.sprints_col: Collection = self.db["sprints"]
         self.notifications_col: Collection = self.db["notifications"]
         self.audit_col: Collection = self.db["audit_logs"]
@@ -395,9 +483,14 @@ class MongoStore(BaseStore):
         self.issues_col.create_index("status")
         self.issues_col.create_index("priority")
         self.issues_col.create_index("assignee_id")
+        self.issues_col.create_index("issue_key", unique=True, sparse=True)
+        self.issues_col.create_index("labels")
         self.issues_col.create_index([("title", "text"), ("description", "text")])
         self.comments_col.create_index("issue_id")
         self.comments_col.create_index("parent_id")
+        self.issue_activity_col.create_index("issue_id")
+        self.issue_links_col.create_index("source_issue_id")
+        self.issue_links_col.create_index("target_issue_id")
         self.sprints_col.create_index("project_id")
         self.notifications_col.create_index("user_id")
         self.audit_col.create_index("timestamp")
@@ -477,6 +570,23 @@ class MongoStore(BaseStore):
     def get_issue(self, issue_id: str) -> Issue | None:
         return self._load(Issue, self.issues_col.find_one({"id": issue_id}))
 
+    def get_issue_by_key(self, issue_key: str) -> Issue | None:
+        return self._load(Issue, self.issues_col.find_one({"issue_key": issue_key}))
+
+    def next_issue_sequence(self, project_id: str) -> int:
+        project_issues = self.list_issues(project_id=project_id)
+        if not project_issues:
+            return 1
+        numbers: list[int] = []
+        for issue in project_issues:
+            if not issue.issue_key:
+                continue
+            try:
+                numbers.append(int(str(issue.issue_key).split("-")[-1]))
+            except Exception:
+                continue
+        return (max(numbers) + 1) if numbers else (len(project_issues) + 1)
+
     def list_issues(
         self,
         *,
@@ -485,6 +595,7 @@ class MongoStore(BaseStore):
         priority: IssuePriority | None = None,
         assignee_id: str | None = None,
         sprint_id: str | None = None,
+        labels: list[str] | None = None,
         search: str | None = None,
     ) -> list[Issue]:
         query: dict[str, Any] = {}
@@ -498,6 +609,8 @@ class MongoStore(BaseStore):
             query["assignee_id"] = assignee_id
         if sprint_id is not None:
             query["sprint_id"] = sprint_id
+        if labels:
+            query["labels"] = {"$all": labels}
         if search:
             query["$text"] = {"$search": search}
         cursor = self.issues_col.find(query).sort([("backlog_order", 1), ("created_at", 1)])
@@ -525,6 +638,14 @@ class MongoStore(BaseStore):
     def update_comment(self, comment: Comment) -> Comment:
         self.comments_col.update_one({"id": comment.id}, {"$set": self._dump_for_update(comment)})
         return comment
+
+    def create_issue_activity(self, activity: IssueActivity) -> IssueActivity:
+        self.issue_activity_col.insert_one(self._dump(activity))
+        return activity
+
+    def list_issue_activity(self, issue_id: str) -> list[IssueActivity]:
+        cursor = self.issue_activity_col.find({"issue_id": issue_id}).sort("timestamp", -1)
+        return [self._load(IssueActivity, row) for row in cursor]
 
     def create_sprint(self, sprint: Sprint) -> Sprint:
         self.sprints_col.insert_one(self._dump(sprint))
@@ -554,6 +675,20 @@ class MongoStore(BaseStore):
         self.notifications_col.update_one({"id": notification_id, "user_id": user_id}, {"$set": {"read": True}})
         return self._load(Notification, self.notifications_col.find_one({"id": notification_id, "user_id": user_id}))
 
+    def create_issue_link(self, link: IssueLink) -> IssueLink:
+        self.issue_links_col.insert_one(self._dump(link))
+        return link
+
+    def list_issue_links(self, issue_id: str) -> list[IssueLink]:
+        cursor = self.issue_links_col.find(
+            {"$or": [{"source_issue_id": issue_id}, {"target_issue_id": issue_id}]}
+        ).sort("created_at", -1)
+        return [self._load(IssueLink, row) for row in cursor]
+
+    def delete_issue_link(self, link_id: str) -> bool:
+        result = self.issue_links_col.delete_one({"id": link_id})
+        return result.deleted_count > 0
+
     def create_audit_log(self, log: AuditLog) -> AuditLog:
         self.audit_col.insert_one(self._dump(log))
         return log
@@ -563,7 +698,11 @@ class MongoStore(BaseStore):
         cursor = self.audit_col.find(query).sort("timestamp", -1).limit(limit)
         return [self._load(AuditLog, row) for row in cursor]
 
-    def get_dashboard_stats(self, project_id: str | None = None) -> DashboardStats:
+    def get_dashboard_stats(
+        self,
+        project_id: str | None = None,
+        current_user_id: str | None = None,
+    ) -> DashboardStats:
         issues = self.list_issues(project_id=project_id)
         status_counts = Counter(issue.status.value for issue in issues)
         priority_counts = Counter(issue.priority.value for issue in issues)
@@ -576,5 +715,8 @@ class MongoStore(BaseStore):
             medium_priority=priority_counts.get(IssuePriority.medium.value, 0),
             high_priority=priority_counts.get(IssuePriority.high.value, 0),
             critical_priority=priority_counts.get(IssuePriority.critical.value, 0),
+            assigned_to_me=sum(1 for issue in issues if issue.assignee_id == current_user_id),
+            status_breakdown=dict(status_counts),
+            priority_breakdown=dict(priority_counts),
             recent_activity=self.list_audit_logs(project_id=project_id, limit=12),
         )

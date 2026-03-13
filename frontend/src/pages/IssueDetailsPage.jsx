@@ -1,30 +1,48 @@
-import { useEffect, useState } from "react";
+import { Link2, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
+import PriorityBadge from "../components/PriorityBadge";
+import UserAvatar from "../components/UserAvatar";
 import { api, parseApiError } from "../services/api";
 import { formatDate } from "../utils/date";
 
 export default function IssueDetailsPage() {
-  const { issueId } = useParams();
+  const { issueId, issueKey } = useParams();
   const { user } = useAuth();
   const [issue, setIssue] = useState(null);
   const [comments, setComments] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [links, setLinks] = useState([]);
   const [users, setUsers] = useState([]);
   const [commentBody, setCommentBody] = useState("");
   const [replyParentId, setReplyParentId] = useState(null);
+  const [newLinkTarget, setNewLinkTarget] = useState("");
+  const [newLinkType, setNewLinkType] = useState("relates_to");
   const [error, setError] = useState("");
+  const userMap = useMemo(
+    () => Object.fromEntries(users.map((item) => [item.id, item])),
+    [users]
+  );
 
   async function loadIssue() {
     try {
-      const issueResp = await api.getIssue(issueId);
-      setIssue(issueResp.data);
-      const [commentsResp, usersResp] = await Promise.all([
-        api.listComments(issueId),
+      const issueResp = issueId
+        ? await api.getIssue(issueId)
+        : await api.getIssueByKey(issueKey);
+      const currentIssue = issueResp.data;
+      setIssue(currentIssue);
+      const [commentsResp, usersResp, activityResp, linksResp] = await Promise.all([
+        api.listComments(currentIssue.id),
         api.listUsers().catch(() => ({ data: [] })),
+        api.listIssueActivity(currentIssue.id),
+        api.listIssueLinks(currentIssue.id),
       ]);
       setComments(commentsResp.data);
       setUsers(usersResp.data);
+      setActivity(activityResp.data);
+      setLinks(linksResp.data);
       setError("");
     } catch (err) {
       setError(parseApiError(err));
@@ -33,12 +51,16 @@ export default function IssueDetailsPage() {
 
   useEffect(() => {
     loadIssue();
-  }, [issueId]);
+  }, [issueId, issueKey]);
 
   async function updateField(field, value) {
+    if (!issue) {
+      return;
+    }
     try {
-      const response = await api.updateIssue(issueId, { [field]: value });
+      const response = await api.updateIssue(issue.id, { [field]: value });
       setIssue(response.data);
+      await loadIssue();
     } catch (err) {
       setError(parseApiError(err));
     }
@@ -48,7 +70,7 @@ export default function IssueDetailsPage() {
     event.preventDefault();
     try {
       await api.createComment({
-        issue_id: issueId,
+        issue_id: issue.id,
         body: commentBody,
         parent_id: replyParentId,
       });
@@ -75,8 +97,37 @@ export default function IssueDetailsPage() {
       return;
     }
     try {
-      const response = await api.uploadAttachment(issueId, file);
+      const response = await api.uploadAttachment(issue.id, file);
       setIssue(response.data);
+      await loadIssue();
+    } catch (err) {
+      setError(parseApiError(err));
+    }
+  }
+
+  async function createLink(event) {
+    event.preventDefault();
+    if (!newLinkTarget.trim()) {
+      return;
+    }
+    try {
+      const target = await api.getIssueByKey(newLinkTarget.trim().toUpperCase());
+      await api.createIssueLink(issue.id, {
+        target_issue_id: target.data.id,
+        link_type: newLinkType,
+      });
+      setNewLinkTarget("");
+      setNewLinkType("relates_to");
+      await loadIssue();
+    } catch (err) {
+      setError(parseApiError(err));
+    }
+  }
+
+  async function removeLink(linkId) {
+    try {
+      await api.deleteIssueLink(issue.id, linkId);
+      await loadIssue();
     } catch (err) {
       setError(parseApiError(err));
     }
@@ -86,13 +137,13 @@ export default function IssueDetailsPage() {
     return <div className="text-slate-300">Loading issue...</div>;
   }
 
-  const userMap = Object.fromEntries(users.map((item) => [item.id, item]));
   const topLevel = comments.filter((comment) => !comment.parent_id);
   const children = comments.filter((comment) => comment.parent_id);
 
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-semibold">Issue Details</h2>
+      <p className="text-sm text-slate-400">{issue.issue_key || issue.id}</p>
       {error && <p className="text-sm text-rose-400">{error}</p>}
 
       <section className="rounded-md border border-slate-800 bg-slate-900 p-4 space-y-3">
@@ -153,8 +204,20 @@ export default function IssueDetailsPage() {
             ))}
           </select>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <PriorityBadge priority={issue.priority} />
+          {(issue.labels || []).map((label) => (
+            <span
+              key={label}
+              className="inline-flex rounded-full bg-cyan-500/20 border border-cyan-400/30 text-cyan-200 px-2 py-0.5 text-xs"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
         <div className="text-xs text-slate-400">
-          Reporter: {userMap[issue.reporter_id]?.name || issue.reporter_id} • Updated{" "}
+          Reporter: {userMap[issue.reporter_id]?.name || issue.reporter_id} • Assignee:{" "}
+          {userMap[issue.assignee_id]?.name || "Unassigned"} • Updated{" "}
           {formatDate(issue.updated_at)}
         </div>
       </section>
@@ -182,13 +245,66 @@ export default function IssueDetailsPage() {
       </section>
 
       <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Link2 className="h-4 w-4" />
+            Linked Issues
+          </h3>
+        </div>
+        <form className="flex flex-wrap items-center gap-2 mb-3" onSubmit={createLink}>
+          <input
+            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+            placeholder="Target issue key (e.g., AUTH-12)"
+            value={newLinkTarget}
+            onChange={(event) => setNewLinkTarget(event.target.value)}
+          />
+          <select
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
+            value={newLinkType}
+            onChange={(event) => setNewLinkType(event.target.value)}
+          >
+            <option value="relates_to">relates_to</option>
+            <option value="blocks">blocks</option>
+            <option value="blocked_by">blocked_by</option>
+            <option value="duplicates">duplicates</option>
+          </select>
+          <button className="rounded-md bg-brand-600 hover:bg-brand-700 px-3 py-2 text-sm inline-flex items-center gap-1">
+            <Plus className="h-4 w-4" /> Link
+          </button>
+        </form>
+        <div className="space-y-2">
+          {links.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-md border border-slate-800 bg-slate-950 p-2 flex items-center justify-between text-sm"
+            >
+              <span>
+                {item.link_type}: {item.source_issue_id} ↔ {item.target_issue_id}
+              </span>
+              <button
+                type="button"
+                className="text-xs text-rose-400 hover:underline"
+                onClick={() => removeLink(item.id)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
         <h3 className="font-semibold mb-2">Comments</h3>
         <div className="space-y-3">
           {topLevel.map((comment) => (
             <div key={comment.id} className="rounded-md border border-slate-800 bg-slate-950 p-3">
               <p className="text-sm">{comment.body}</p>
               <p className="text-xs text-slate-400 mt-1">
-                {userMap[comment.author_id]?.name || comment.author_id} • {formatDate(comment.created_at)}
+                <span className="inline-flex items-center gap-2">
+                  <UserAvatar name={userMap[comment.author_id]?.name || comment.author_id} />
+                  {userMap[comment.author_id]?.name || comment.author_id}
+                </span>{" "}
+                • {formatDate(comment.created_at)}
               </p>
               <div className="mt-2 flex gap-2 text-xs">
                 <button
@@ -252,11 +368,15 @@ export default function IssueDetailsPage() {
       <section className="rounded-md border border-slate-800 bg-slate-900 p-4">
         <h3 className="font-semibold mb-2">Activity History</h3>
         <div className="space-y-2">
-          {(issue.history || []).map((history) => (
-            <div key={`${history.at}-${history.field || "none"}`} className="text-sm">
-              <span className="text-slate-300">{history.action}</span>{" "}
-              {history.field ? <span className="text-slate-400">({history.field})</span> : null}
-              <span className="text-xs text-slate-500 ml-2">{formatDate(history.at)}</span>
+          {(activity || []).map((item) => (
+            <div key={item.id} className="text-sm rounded-md border border-slate-800 bg-slate-950 px-3 py-2">
+              <span className="text-slate-200 font-medium">{item.action}</span>
+              <span className="text-xs text-slate-500 ml-2">{formatDate(item.timestamp)}</span>
+              {item.metadata && Object.keys(item.metadata).length ? (
+                <pre className="text-xs text-slate-400 mt-1 overflow-x-auto">
+                  {JSON.stringify(item.metadata)}
+                </pre>
+              ) : null}
             </div>
           ))}
         </div>

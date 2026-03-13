@@ -55,6 +55,13 @@ class NotificationType(str, Enum):
     status_change = "status_change"
 
 
+class IssueLinkType(str, Enum):
+    blocks = "blocks"
+    blocked_by = "blocked_by"
+    relates_to = "relates_to"
+    duplicates = "duplicates"
+
+
 class UserProfile(BaseModel):
     title: str | None = None
     team: str | None = None
@@ -189,6 +196,7 @@ class IssueUpdate(BaseModel):
 
 class Issue(BaseModel):
     id: str = Field(default_factory=new_id)
+    issue_key: str | None = None
     project_id: str
     title: str
     description: str
@@ -241,6 +249,15 @@ class Comment(BaseModel):
     deleted: bool = False
 
 
+class IssueActivity(BaseModel):
+    id: str = Field(default_factory=new_id)
+    issue_id: str
+    user_id: str
+    action: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=now_utc)
+
+
 class SprintCreate(BaseModel):
     project_id: str
     name: str = Field(min_length=2, max_length=120)
@@ -281,6 +298,20 @@ class Notification(BaseModel):
     read: bool = False
 
 
+class IssueLinkCreate(BaseModel):
+    target_issue_id: str
+    link_type: IssueLinkType = IssueLinkType.relates_to
+
+
+class IssueLink(BaseModel):
+    id: str = Field(default_factory=new_id)
+    source_issue_id: str
+    target_issue_id: str
+    link_type: IssueLinkType
+    created_by: str
+    created_at: datetime = Field(default_factory=now_utc)
+
+
 class AuditLog(BaseModel):
     id: str = Field(default_factory=new_id)
     actor_id: str
@@ -300,4 +331,7 @@ class DashboardStats(BaseModel):
     medium_priority: int = 0
     high_priority: int = 0
     critical_priority: int = 0
+    assigned_to_me: int = 0
+    status_breakdown: dict[str, int] = Field(default_factory=dict)
+    priority_breakdown: dict[str, int] = Field(default_factory=dict)
     recent_activity: list[AuditLog] = Field(default_factory=list)

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     mongodb_db_name: str = "bugtrackerplus"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://localhost:3000"])
     local_upload_dir: str = "uploads"
+    enable_demo_seed: bool = False
     azure_blob_connection_string: str | None = None
     azure_blob_container_name: str = "issue-attachments"
 

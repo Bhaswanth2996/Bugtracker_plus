@@ -54,7 +54,7 @@ export default function CreateIssuePage() {
           .map((item) => item.trim())
           .filter(Boolean),
       });
-      navigate(`/issues/${response.data.id}`);
+      navigate(response.data.issue_key ? `/issue/${response.data.issue_key}` : `/issues/${response.data.id}`);
     } catch (err) {
       setError(parseApiError(err));
     }

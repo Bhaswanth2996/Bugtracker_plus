@@ -23,6 +23,7 @@ services:
       BUGTRACKER_MONGODB_DB_NAME: bugtrackerplus
       BUGTRACKER_CORS_ORIGINS: '["http://localhost:5173"]'
       BUGTRACKER_LOCAL_UPLOAD_DIR: uploads
+      BUGTRACKER_ENABLE_DEMO_SEED: "true"
     depends_on:
       - mongodb
     ports:

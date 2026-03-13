@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.db.store import InMemoryStore, MongoStore
 from app.routes import audit, auth, comments, dashboard, health, issues, notifications, projects, sprints, users
+from app.services.seeder import seed_demo_data
 
 settings = get_settings()
 
@@ -19,6 +20,8 @@ async def lifespan(app: FastAPI):
         app.state.store = MongoStore(settings.mongodb_uri, settings.mongodb_db_name)
     else:
         app.state.store = InMemoryStore()
+    if settings.enable_demo_seed:
+        seed_demo_data(app.state.store)
     yield
 
 

@@ -87,7 +87,7 @@ export default function ProjectListPage() {
         {projects.map((project) => (
           <Link
             key={project.id}
-            to={`/projects/${project.id}`}
+            to={`/project/${project.key}`}
             className="rounded-md border border-slate-800 bg-slate-900 p-4 hover:bg-slate-800"
           >
             <p className="text-sm text-slate-400">{project.key}</p>

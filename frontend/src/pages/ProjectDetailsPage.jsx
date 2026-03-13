@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import ProjectWorkspaceTabs from "../components/ProjectWorkspaceTabs";
 import { useAuth } from "../context/AuthContext";
 import { api, parseApiError } from "../services/api";
 
@@ -65,19 +66,20 @@ export default function ProjectDetailsPage() {
         </div>
         <div className="flex gap-2">
           <Link
-            to={`/projects/${projectId}/board`}
+            to={`/project/${project.key}/board`}
             className="rounded-md bg-brand-600 hover:bg-brand-700 px-3 py-2 text-sm"
           >
             Open Board
           </Link>
           <Link
-            to={`/projects/${projectId}/backlog`}
+            to={`/project/${project.key}/backlog`}
             className="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800"
           >
             Open Backlog
           </Link>
         </div>
       </div>
+      <ProjectWorkspaceTabs projectKey={project.key} />
 
       {error && <p className="text-sm text-rose-400">{error}</p>}
 

@@ -39,6 +39,7 @@ export const api = {
   createProject: (payload) => client.post("/projects", payload),
   listProjects: () => client.get("/projects"),
   getProject: (projectId) => client.get(`/projects/${projectId}`),
+  getProjectByKey: (projectKey) => client.get(`/projects/key/${projectKey}`),
   updateProject: (projectId, payload) => client.put(`/projects/${projectId}`, payload),
   addProjectMember: (projectId, payload) =>
     client.post(`/projects/${projectId}/members`, payload),
@@ -46,9 +47,14 @@ export const api = {
   createIssue: (payload) => client.post("/issues", payload),
   listIssues: (params) => client.get("/issues", { params }),
   getIssue: (issueId) => client.get(`/issues/${issueId}`),
+  getIssueByKey: (issueKey) => client.get(`/issues/key/${issueKey}`),
   updateIssue: (issueId, payload) => client.put(`/issues/${issueId}`, payload),
   deleteIssue: (issueId) => client.delete(`/issues/${issueId}`),
   moveIssueToSprint: (issueId, payload) => client.put(`/issues/${issueId}/sprint`, payload),
+  listIssueActivity: (issueId) => client.get(`/issues/${issueId}/activity`),
+  listIssueLinks: (issueId) => client.get(`/issues/${issueId}/links`),
+  createIssueLink: (issueId, payload) => client.post(`/issues/${issueId}/links`, payload),
+  deleteIssueLink: (issueId, linkId) => client.delete(`/issues/${issueId}/links/${linkId}`),
   uploadAttachment: (issueId, file) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -72,6 +78,7 @@ export const api = {
     client.put(`/projects/${projectId}/backlog/reorder`, { items }),
 
   getProjectDashboard: (projectId) => client.get(`/projects/${projectId}/dashboard`),
+  getProjectReports: (projectId) => client.get(`/projects/${projectId}/reports`),
   getGlobalDashboard: () => client.get("/dashboard"),
   getAuditLogs: (params) => client.get("/audit", { params }),
 

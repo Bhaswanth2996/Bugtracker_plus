@@ -11,7 +11,11 @@ import KanbanPage from "./pages/KanbanPage";
 import LoginPage from "./pages/LoginPage";
 import ProfilePage from "./pages/ProfilePage";
 import ProjectDetailsPage from "./pages/ProjectDetailsPage";
+import ProjectIssuesPage from "./pages/ProjectIssuesPage";
 import ProjectListPage from "./pages/ProjectListPage";
+import ProjectMembersPage from "./pages/ProjectMembersPage";
+import ProjectReportsPage from "./pages/ProjectReportsPage";
+import ProjectSettingsPage from "./pages/ProjectSettingsPage";
 import RegisterPage from "./pages/RegisterPage";
 
 export default function App() {
@@ -27,6 +31,13 @@ export default function App() {
           <Route path="/projects/:projectId/board" element={<KanbanPage />} />
           <Route path="/projects/:projectId/backlog" element={<BacklogPage />} />
           <Route path="/issues/:issueId" element={<IssueDetailsPage />} />
+          <Route path="/project/:projectKey" element={<ProjectIssuesPage />} />
+          <Route path="/project/:projectKey/board" element={<KanbanPage />} />
+          <Route path="/project/:projectKey/backlog" element={<BacklogPage />} />
+          <Route path="/project/:projectKey/reports" element={<ProjectReportsPage />} />
+          <Route path="/project/:projectKey/members" element={<ProjectMembersPage />} />
+          <Route path="/project/:projectKey/settings" element={<ProjectSettingsPage />} />
+          <Route path="/issue/:issueKey" element={<IssueDetailsPage />} />
           <Route path="/create-issue" element={<CreateIssuePage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/admin" element={<AdminSettingsPage />} />

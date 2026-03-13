@@ -10,6 +10,9 @@ from app.models.schemas import (
     Issue,
     IssueCreate,
     IssueHistoryItem,
+    IssueLink,
+    IssueLinkCreate,
+    IssueLinkType,
     IssueMoveToSprint,
     IssuePriority,
     IssueStatus,
@@ -18,6 +21,7 @@ from app.models.schemas import (
     UserInDB,
     UserRole,
 )
+from app.services.activity import log_issue_activity
 from app.services.attachments import storage
 from app.services.audit import log_action
 from app.services.notifications import notify_user
@@ -51,8 +55,18 @@ def create_issue(
         reporter_id=current_user.id,
         labels=payload.labels,
     )
+    project = store.get_project(payload.project_id)
+    sequence = store.next_issue_sequence(payload.project_id)
+    issue.issue_key = f"{project.key}-{sequence}" if project else None
     issue.history.append(IssueHistoryItem(by=current_user.id, action="created"))
     created = store.create_issue(issue)
+    log_issue_activity(
+        store,
+        issue_id=created.id,
+        actor=current_user,
+        action="issue_created",
+        metadata={"issue_key": created.issue_key, "project_id": created.project_id},
+    )
     log_action(
         store,
         actor=current_user,
@@ -81,20 +95,36 @@ def list_issues(
     priority: IssuePriority | None = Query(default=None),
     assignee_id: str | None = Query(default=None),
     sprint_id: str | None = Query(default=None),
+    labels: str | None = Query(default=None, description="Comma separated labels."),
     search: str | None = Query(default=None),
     current_user: UserInDB = Depends(get_current_user),
     store: BaseStore = Depends(get_store),
 ) -> list[Issue]:
     if project_id:
         ensure_project_access(store, current_user, project_id)
+    parsed_labels = [label.strip() for label in (labels or "").split(",") if label.strip()]
     return store.list_issues(
         project_id=project_id,
         status=status,
         priority=priority,
         assignee_id=assignee_id,
         sprint_id=sprint_id,
+        labels=parsed_labels or None,
         search=search,
     )
+
+
+@router.get("/key/{issue_key}", response_model=Issue)
+def get_issue_by_key(
+    issue_key: str,
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> Issue:
+    issue = store.get_issue_by_key(issue_key)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    ensure_project_access(store, current_user, issue.project_id)
+    return issue
 
 
 @router.get("/{issue_id}", response_model=Issue)
@@ -181,6 +211,13 @@ def update_issue(
         entity_id=updated.id,
         details={"project_id": updated.project_id, **updates},
     )
+    log_issue_activity(
+        store,
+        issue_id=updated.id,
+        actor=current_user,
+        action="issue_updated",
+        metadata=updates,
+    )
     return updated
 
 
@@ -197,6 +234,13 @@ def delete_issue(
     if not can_manage_project(current_user):
         raise HTTPException(status_code=403, detail="Only admin/project manager can delete issues.")
     store.delete_issue(issue_id)
+    log_issue_activity(
+        store,
+        issue_id=issue_id,
+        actor=current_user,
+        action="issue_deleted",
+        metadata={"project_id": issue.project_id},
+    )
     log_action(
         store,
         actor=current_user,
@@ -229,6 +273,13 @@ async def upload_attachment(
     issue.history.append(IssueHistoryItem(by=current_user.id, action="attachment.added", field="attachments", new_value=filename))
     issue.updated_at = datetime.now(tz=timezone.utc)
     updated = store.update_issue(issue)
+    log_issue_activity(
+        store,
+        issue_id=issue.id,
+        actor=current_user,
+        action="attachment_added",
+        metadata={"filename": filename, "attachment_id": attachment.id},
+    )
     log_action(
         store,
         actor=current_user,
@@ -269,6 +320,13 @@ def move_issue_to_sprint(
         )
     )
     updated = store.update_issue(issue)
+    log_issue_activity(
+        store,
+        issue_id=issue.id,
+        actor=current_user,
+        action="issue_moved_to_sprint",
+        metadata={"sprint_id": payload.sprint_id},
+    )
     log_action(
         store,
         actor=current_user,
@@ -323,3 +381,98 @@ def get_project_board(
         "in_progress": [item for item in issues if item.status == IssueStatus.in_progress],
         "done": [item for item in issues if item.status == IssueStatus.done],
     }
+
+
+@router.get("/{issue_id}/activity")
+def list_issue_activity(
+    issue_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+):
+    issue = store.get_issue(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    ensure_project_access(store, current_user, issue.project_id)
+    return store.list_issue_activity(issue_id)
+
+
+@router.get("/{issue_id}/links", response_model=list[IssueLink])
+def list_issue_links(
+    issue_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> list[IssueLink]:
+    issue = store.get_issue(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    ensure_project_access(store, current_user, issue.project_id)
+    return store.list_issue_links(issue_id)
+
+
+@router.post("/{issue_id}/links", response_model=IssueLink, status_code=201)
+def create_issue_link(
+    issue_id: str,
+    payload: IssueLinkCreate,
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> IssueLink:
+    source = store.get_issue(issue_id)
+    target = store.get_issue(payload.target_issue_id)
+    if not source or not target:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    ensure_project_access(store, current_user, source.project_id)
+    if source.project_id != target.project_id:
+        raise HTTPException(status_code=400, detail="Linked issues must belong to same project.")
+
+    link = IssueLink(
+        source_issue_id=source.id,
+        target_issue_id=target.id,
+        link_type=payload.link_type,
+        created_by=current_user.id,
+    )
+    created = store.create_issue_link(link)
+    # Create inverse link for blocks/blocked_by relationships.
+    if payload.link_type in {IssueLinkType.blocks, IssueLinkType.blocked_by}:
+        inverse_type = (
+            IssueLinkType.blocked_by
+            if payload.link_type == IssueLinkType.blocks
+            else IssueLinkType.blocks
+        )
+        inverse = IssueLink(
+            source_issue_id=target.id,
+            target_issue_id=source.id,
+            link_type=inverse_type,
+            created_by=current_user.id,
+        )
+        store.create_issue_link(inverse)
+
+    log_issue_activity(
+        store,
+        issue_id=source.id,
+        actor=current_user,
+        action="issue_link_added",
+        metadata={"target_issue_id": target.id, "link_type": payload.link_type.value},
+    )
+    return created
+
+
+@router.delete("/{issue_id}/links/{link_id}", status_code=204)
+def delete_issue_link(
+    issue_id: str,
+    link_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    store: BaseStore = Depends(get_store),
+) -> None:
+    issue = store.get_issue(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    ensure_project_access(store, current_user, issue.project_id)
+    if not store.delete_issue_link(link_id):
+        raise HTTPException(status_code=404, detail="Issue link not found.")
+    log_issue_activity(
+        store,
+        issue_id=issue_id,
+        actor=current_user,
+        action="issue_link_deleted",
+        metadata={"link_id": link_id},
+    )
