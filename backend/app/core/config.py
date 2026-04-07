@@ -1,13 +1,17 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BACKEND_DIR / ".env"
 
 
 class Settings(BaseSettings):
     app_name: str = "Bug Tracker+ API"
     app_env: str = "development"
-    store_backend: str = "mongodb"
+    store_backend: str = "memory"
     jwt_secret_key: str = Field(default="change-me-in-prod", min_length=16)
     jwt_algorithm: str = "HS256"
     jwt_exp_minutes: int = 60 * 12
@@ -22,7 +26,7 @@ class Settings(BaseSettings):
     ci_ingest_token: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE),
         env_prefix="BUGTRACKER_",
         extra="ignore",
     )

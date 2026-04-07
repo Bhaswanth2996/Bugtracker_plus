@@ -112,6 +112,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 cp backend/.env.example backend/.env
+# Optional: if running without MongoDB locally, keep memory mode (default in backend/.env.example)
+# export BUGTRACKER_STORE_BACKEND=memory
+# Optional: to use MongoDB instead:
+# export BUGTRACKER_STORE_BACKEND=mongodb
 python3 -m uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000
 ```
 
