@@ -1,36 +1,261 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BugTracker+ (Jira-like Issue Tracking System)
 
-## Getting Started
+BugTracker+ is a Jira-inspired cloud-native issue management platform built with FastAPI, React, MongoDB (CosmosDB compatible), Docker, GitHub Actions, and Azure-ready deployment workflows.
 
-First, run the development server:
+## Implemented Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Backend**: Python FastAPI + REST + JWT + RBAC
+- **Frontend**: React.js + React Router + Axios + Tailwind CSS (Vite)
+- **Database**: MongoDB / Azure Cosmos DB (Mongo API)
+- **Testing**: PyTest + Selenium + Allure reports
+- **DevOps**: Docker, docker-compose, GitHub Actions CI/CD, Azure deployment integration
+
+## Jira-like Features Included
+
+- Authentication: register/login/JWT
+- Role permissions: `admin`, `project_manager`, `developer`, `tester`
+- User profiles and role updates
+- Projects and team membership management
+- Issues with:
+  - title, description, issue type (`bug`, `task`, `story`, `epic`)
+  - status (`todo`, `in_progress`, `done`)
+  - priority (`low`, `medium`, `high`, `critical`)
+  - issue keys (`AUTH-1`, `AUTH-2`, ...)
+  - reporter, assignee, labels
+  - attachments
+  - timestamps and history tracking
+- Kanban board with dnd-kit drag/drop status updates
+- Sprint management (create/start/close)
+- Backlog prioritization with drag reorder + drag to sprint targets
+- Threaded comments with edit/delete
+- Issue activity timeline (`issue_activity`) + audit timeline
+- Search and filters (status/priority/project/assignee/labels/text)
+- Issue linking (`blocks`, `blocked_by`, `relates_to`, `duplicates`)
+- Notifications for assignment/comments/status changes
+- Project workspace routes (`/project/:key`) with tabs:
+  - Issues, Board, Backlog, Reports, Members, Settings
+- Reports & charts (status, priority, burndown, velocity)
+- Dashboard statistics + recent activity + assigned-to-me
+- Optional demo seed script with 50 AUTH issues (including Epic/Story)
+
+## Advanced AI + DevOps Extensions
+
+BugTracker+ now includes optional modular enhancements:
+
+- Automated issue creation from CI/CD test failures (`POST /api/test-failure-report`)
+- AI bug analysis suggestions (priority, labels, assignee, duplicate hints)
+- Smart duplicate bug detection using text similarity
+- Bug risk prediction analytics by module
+- Root-cause analysis insights per issue (`GET /api/issues/{issueId}/root-cause`)
+- Intelligent assignee recommendation + developer workload insights
+- Real-time issue updates over WebSocket (`/ws/issues`)
+- Professional issue timeline/history tracking (`issue_history`, `/api/issues/{issueId}/timeline`)
+- Global issue search across projects (`GET /api/issues/search`)
+
+## Repository Structure
+
+```text
+bugtracker-plus/
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── routes/
+│   │   ├── models/
+│   │   ├── services/
+│   │   ├── auth/
+│   │   ├── core/
+│   │   ├── db/
+│   │   └── database.py
+│   ├── tests/
+│   ├── requirements.txt
+│   ├── pytest.ini
+│   ├── .env.example
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   ├── context/
+│   │   └── App.jsx
+│   ├── package.json
+│   └── .env.example
+├── docker/
+│   ├── Dockerfile.backend
+│   └── Dockerfile.frontend
+├── docker-compose.yml
+├── .github/workflows/ci.yml
+└── README.md
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Run Locally
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Option A: Docker Compose (recommended)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+docker compose up --build
+```
 
-## Learn More
+Services:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- MongoDB: `mongodb://localhost:27017`
 
-To learn more about Next.js, take a look at the following resources:
+`docker-compose.yml` enables demo seed data by default (`BUGTRACKER_ENABLE_DEMO_SEED=true`).
+Backend defaults to MongoDB storage (`BUGTRACKER_STORE_BACKEND=mongodb`) to persist issue updates/comments/status changes.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Option B: Run services separately
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Backend:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+cp backend/.env.example backend/.env
+# Optional: if running without MongoDB locally, keep memory mode (default in backend/.env.example)
+# export BUGTRACKER_STORE_BACKEND=memory
+# Optional: to use MongoDB instead:
+# export BUGTRACKER_STORE_BACKEND=mongodb
+python3 -m uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000
+```
 
-## Deploy on Vercel
+Frontend:
+```bash
+npm --prefix frontend install
+cp frontend/.env.example frontend/.env
+npm --prefix frontend run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Seed demo data manually
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run seed:demo
+```
+
+Default seeded users:
+- `admin@jira.com` / `Password123!`
+- `pm@jira.com` / `Password123!`
+- `dev@jira.com` / `Password123!`
+- `qa@jira.com` / `Password123!`
+
+## API Summary
+
+- **Auth**
+  - `POST /auth/register`
+  - `POST /auth/login`
+  - `GET /auth/me`
+- **Users**
+  - `GET /users`
+  - `GET /users/{id}`
+  - `PUT /users/me/profile`
+  - `PUT /users/{id}/role`
+- **Projects**
+  - `POST /projects`
+  - `GET /projects`
+  - `GET /projects/key/{key}`
+  - `GET /projects/{id}`
+  - `PUT /projects/{id}`
+  - `POST /projects/{id}/members`
+  - `GET /projects/{id}/dashboard`
+  - `GET /projects/{id}/reports`
+  - `GET /projects/{id}/backlog`
+  - `PUT /projects/{id}/backlog/reorder`
+  - `GET /projects/{id}/board`
+- **Issues**
+  - `POST /issues`
+  - `GET /issues`
+  - `GET /issues/key/{issueKey}`
+  - `GET /issues/{id}`
+  - `PUT /issues/{id}`
+  - `DELETE /issues/{id}`
+  - `PUT /issues/{id}/sprint`
+  - `POST /issues/{id}/attachments`
+  - `GET /issues/{id}/activity`
+  - `GET /issues/{id}/links`
+  - `POST /issues/{id}/links`
+  - `DELETE /issues/{id}/links/{linkId}`
+- **Comments**
+  - `POST /comments`
+  - `GET /comments/{issueId}`
+  - `PUT /comments/{commentId}`
+  - `DELETE /comments/{commentId}`
+- **Sprints**
+  - `POST /sprints`
+  - `GET /sprints`
+  - `PUT /sprints/{id}`
+  - `POST /sprints/{id}/start`
+  - `POST /sprints/{id}/close`
+- **System**
+  - `GET /dashboard`
+  - `GET /audit`
+  - `GET /notifications`
+  - `PUT /notifications/{id}/read`
+  - `GET /health`
+- **AI / DevOps Extensions (`/api`)**
+  - `POST /api/test-failure-report`
+  - `POST /api/ai/analyze-bug`
+  - `POST /api/ai/find-duplicates`
+  - `POST /api/ai/recommend-assignee`
+  - `GET /api/issues/{id}/root-cause`
+  - `GET /api/issues/{id}/timeline`
+  - `GET /api/issues/search`
+  - `GET /api/analytics/bug-risk`
+  - `GET /api/analytics/automated-test-failures`
+  - `GET /api/analytics/root-cause-insights`
+  - `GET /api/analytics/developer-workload`
+  - `GET /api/analytics/ai-insights`
+  - `GET /api/analytics/advanced-dashboard`
+  - `GET /api/analytics/recent-activity-timeline`
+- **Realtime**
+  - `WS /ws/issues`
+
+## Testing
+
+Backend:
+```bash
+PYTHONPATH=backend python3 -m pytest backend/tests -q
+```
+
+Allure report artifacts:
+```bash
+PYTHONPATH=backend python3 -m pytest backend/tests --alluredir=backend/allure-results
+```
+
+Selenium E2E:
+```bash
+E2E_FRONTEND_URL=http://localhost:5173 PYTHONPATH=backend python3 -m pytest backend/tests -m e2e -q
+```
+
+## CI/CD and Azure
+
+GitHub Actions (`.github/workflows/ci.yml`) performs:
+- frontend install/lint/build
+- backend test execution
+- Allure artifacts upload
+- docker image build validation
+- optional Azure deployment on `main` using:
+  - `AZURE_CREDENTIALS`
+  - `AZURE_WEBAPP_NAME`
+  - `AZURE_WEBAPP_IMAGE`
+
+### Example CI failure reporting step
+
+```bash
+curl -X POST "http://localhost:8000/api/test-failure-report" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectKey":"AUTH",
+    "testName":"LoginTest",
+    "errorMessage":"TokenExpiredError",
+    "stackTrace":"Traceback...",
+    "logs":"pytest failure log output",
+    "screenshotUrl":"https://example.com/failure.png",
+    "timestamp":"2026-03-12T10:00:00Z"
+  }'
+```
+
+### Azure service mapping
+- **Azure App Service**: host backend container
+- **Azure Cosmos DB (Mongo API)**: primary database
+- **Azure Blob Storage**: issue attachment storage (optional env-enabled)
+- **Azure Monitor**: application and platform monitoring

@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-jose[cryptography]
+pydantic-settings
+python-dotenv
+pymongo
+email-validator
+pytest
+httpx
+python-multipart
+selenium
+allure-pytest
+azure-storage-blob
