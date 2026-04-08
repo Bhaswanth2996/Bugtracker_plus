@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -64,3 +65,11 @@ app.include_router(sprints.project_router)
 app.include_router(notifications.router)
 app.include_router(ai_platform.router)
 app.include_router(realtime.router)
+
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 10000))  # Render provides PORT
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
