@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Bug Tracker+ API"
     app_env: str = "development"
-    store_backend: str = "memory"
+    store_backend: str = "mongodb"
     jwt_secret_key: str = Field(default="change-me-in-prod", min_length=16)
     jwt_algorithm: str = "HS256"
     jwt_exp_minutes: int = 60 * 12
